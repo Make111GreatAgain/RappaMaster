@@ -1,13 +1,14 @@
-package HTTP
+package test
 
 import (
+	abmhttp "BHLayer2Node/Network/HTTP/abm"
 	"testing"
 
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func TestBuildABMV2TaskParamsProducesProtoStructCompatibleParams(t *testing.T) {
-	params, err := buildABMV2TaskParams(map[string]interface{}{
+	params, err := abmhttp.BuildV2TaskParams(map[string]interface{}{
 		"stockCode": "600000",
 		"stockName": "浦发银行",
 		"horizon":   "1天 (T+1)",
@@ -32,12 +33,12 @@ func TestBuildABMV2TaskParamsProducesProtoStructCompatibleParams(t *testing.T) {
 		t.Fatalf("unexpected risk_drop_levels: %#v", levels)
 	}
 
-	abm, ok := params["abm"].(map[string]interface{})
+	abmCfg, ok := params["abm"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("abm params should be a map, got %#v", params["abm"])
 	}
-	if abm["model_params_root"] != abmStockParamDir(nil) {
-		t.Fatalf("unexpected model_params_root: %#v", abm["model_params_root"])
+	if abmCfg["model_params_root"] != abmhttp.StockParamDir(nil) {
+		t.Fatalf("unexpected model_params_root: %#v", abmCfg["model_params_root"])
 	}
 
 	if _, err := structpb.NewStruct(params); err != nil {
@@ -46,7 +47,7 @@ func TestBuildABMV2TaskParamsProducesProtoStructCompatibleParams(t *testing.T) {
 }
 
 func TestBuildABMV2TaskParamsCanOmitAssignedNode(t *testing.T) {
-	params, err := buildABMV2TaskParams(map[string]interface{}{
+	params, err := abmhttp.BuildV2TaskParams(map[string]interface{}{
 		"stockCode": "600000",
 		"stockName": "浦发银行",
 		"horizon":   "1天 (T+1)",

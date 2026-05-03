@@ -1,6 +1,7 @@
-package HTTP
+package test
 
 import (
+	"BHLayer2Node/Network/HTTP"
 	"BHLayer2Node/paradigm"
 	"testing"
 )
@@ -34,7 +35,7 @@ func TestEncodeAnalysisTypeRequest(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := encodeAnalysisTypeRequest(tc.analType, tc.options)
+			got := HTTP.EncodeAnalysisTypeRequest(tc.analType, tc.options)
 			if got != tc.expected {
 				t.Fatalf("expected %q, got %q", tc.expected, got)
 			}
@@ -43,7 +44,7 @@ func TestEncodeAnalysisTypeRequest(t *testing.T) {
 }
 
 func TestBuildCrashRiskTopRiskList(t *testing.T) {
-	items := []analyticsQueryItem{
+	items := []HTTP.AnalyticsQueryItem{
 		{
 			StockCode: "600000",
 			StockName: "浦发银行",
@@ -76,7 +77,7 @@ func TestBuildCrashRiskTopRiskList(t *testing.T) {
 		},
 	}
 
-	got := buildCrashRiskTopRiskList(items)
+	got := HTTP.BuildCrashRiskTopRiskList(items)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 ranked items, got %d", len(got))
 	}
@@ -90,7 +91,7 @@ func TestBuildCrashRiskTopRiskList(t *testing.T) {
 }
 
 func TestAttachCrashRiskTopRiskListToItems(t *testing.T) {
-	items := []analyticsQueryItem{
+	items := []HTTP.AnalyticsQueryItem{
 		{
 			StockCode: "600000",
 			StockName: "浦发银行",
@@ -111,7 +112,7 @@ func TestAttachCrashRiskTopRiskListToItems(t *testing.T) {
 		},
 	}
 
-	got := attachCrashRiskTopRiskListToItems(items)
+	got := HTTP.AttachCrashRiskTopRiskListToItems(items)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 items, got %d", len(got))
 	}

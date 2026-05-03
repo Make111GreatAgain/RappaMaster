@@ -1,4 +1,4 @@
-package HTTP
+package abm
 
 import (
 	"BHLayer2Node/paradigm"
@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-const defaultABMStockDataDir = "/root/rappa/stockdata"
+const defaultStockDataDir = "/root/rappa/stockdata"
 
-func abmStockDataDir(config *paradigm.BHLayer2NodeConfig) string {
+func StockDataDir(config *paradigm.BHLayer2NodeConfig) string {
 	if value := strings.TrimSpace(os.Getenv("ABM_STOCK_DATA_DIR")); value != "" {
 		return value
 	}
@@ -18,10 +18,10 @@ func abmStockDataDir(config *paradigm.BHLayer2NodeConfig) string {
 			return value
 		}
 	}
-	return defaultABMStockDataDir
+	return defaultStockDataDir
 }
 
-func abmStockParamDir(config *paradigm.BHLayer2NodeConfig) string {
+func StockParamDir(config *paradigm.BHLayer2NodeConfig) string {
 	if value := strings.TrimSpace(os.Getenv("ABM_STOCK_PARAM_DIR")); value != "" {
 		return value
 	}
@@ -30,5 +30,5 @@ func abmStockParamDir(config *paradigm.BHLayer2NodeConfig) string {
 			return value
 		}
 	}
-	return filepath.Join(abmStockDataDir(config), "params")
+	return filepath.Join(StockDataDir(config), "params")
 }

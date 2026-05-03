@@ -1,6 +1,7 @@
-package HTTP
+package abm
 
 import (
+	"BHLayer2Node/paradigm"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,14 +11,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const scheduledABMV2Horizon = "1天 (T+1)"
+const ScheduledV2Horizon = "1天 (T+1)"
 
-func isScheduledCreateTask(c *gin.Context) bool {
+func IsScheduledCreateTask(c *gin.Context) bool {
 	return strings.EqualFold(c.Query("isScheduled"), "true")
 }
 
-func (e *HttpEngine) buildScheduledABMV2RawTasks() ([]map[string]interface{}, error) {
-	stockCodes, err := e.listABMSupportedStockCodes()
+// 构造定时任务的股票列表
+// “既有调参文件、又有真实输入 CSV”的股票才会被加入全市场定时任务
+func BuildScheduledV2RawTasks(config *paradigm.BHLayer2NodeConfig) ([]map[string]interface{}, error) {
+	stockCodes, err := listSupportedStockCodes(config)
 	if err != nil {
 		return nil, err
 	}
@@ -31,16 +34,16 @@ func (e *HttpEngine) buildScheduledABMV2RawTasks() ([]map[string]interface{}, er
 		// 不接受请求体里的额外覆盖参数，避免不同周期任务口径不一致。
 		tasks = append(tasks, map[string]interface{}{
 			"stockCode": stockCode,
-			"stockName": scheduledABMV2StockName(stockCode),
-			"horizon":   scheduledABMV2Horizon,
+			"stockName": scheduledV2StockName(stockCode),
+			"horizon":   ScheduledV2Horizon,
 		})
 	}
 	return tasks, nil
 }
 
-func (e *HttpEngine) listABMSupportedStockCodes() ([]string, error) {
-	paramsDir := abmStockParamDir(&e.config)
-	dataDir := abmStockDataDir(&e.config)
+func listSupportedStockCodes(config *paradigm.BHLayer2NodeConfig) ([]string, error) {
+	paramsDir := StockParamDir(config)
+	dataDir := StockDataDir(config)
 
 	entries, err := os.ReadDir(paramsDir)
 	if err != nil {
@@ -52,7 +55,7 @@ func (e *HttpEngine) listABMSupportedStockCodes() ([]string, error) {
 		if !entry.IsDir() {
 			continue
 		}
-		stockCode := normalizeABMStockCode(entry.Name())
+		stockCode := NormalizeStockCode(entry.Name())
 		if stockCode == "" {
 			continue
 		}
@@ -68,7 +71,6 @@ func (e *HttpEngine) listABMSupportedStockCodes() ([]string, error) {
 	return stockCodes, nil
 }
 
-func scheduledABMV2StockName(stockCode string) string {
-	// 离线参数文件当前不包含股票简称；定时批量任务先用代码占位，保证查询与调度主键稳定。
-	return stockCode
+func scheduledV2StockName(stockCode string) string {
+	return ResolveStockDisplayName(stockCode, stockCode)
 }

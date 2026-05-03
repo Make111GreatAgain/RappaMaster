@@ -1,4 +1,4 @@
-package HTTP
+package abm
 
 import (
 	"BHLayer2Node/paradigm"
@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-var abmTunableParamKeys = []string{
+var TunableParamKeys = []string{
 	"N_FT",
 	"S_FT",
 	"N_LMT",
@@ -33,7 +33,7 @@ var abmTunableParamKeys = []string{
 	"GAMMA",
 }
 
-var abmIntParamKeys = map[string]bool{
+var intParamKeys = map[string]bool{
 	"N_FT":   true,
 	"S_FT":   true,
 	"N_LMT":  true,
@@ -42,7 +42,7 @@ var abmIntParamKeys = map[string]bool{
 	"VOLUME": true,
 }
 
-var abmParamLabels = map[string]string{
+var paramLabels = map[string]string{
 	"N_FT":     "基本面交易者数量",
 	"S_FT":     "基本面交易者交易间隔（step 维度）",
 	"N_LMT":    "长期动量交易者数量",
@@ -65,7 +65,7 @@ var abmParamLabels = map[string]string{
 	"GAMMA":    "动量交易者需求计算系数",
 }
 
-var abmRuntimeParamDefaults = map[string]interface{}{
+var runtimeParamDefaults = map[string]interface{}{
 	"MU_L":     1.1,
 	"SIGMA_L":  0.3,
 	"K1":       0.2855,
@@ -83,18 +83,18 @@ var abmRuntimeParamDefaults = map[string]interface{}{
 
 var stockCodeRegexp = regexp.MustCompile(`\d{6}`)
 
-type abmModelParamsFile struct {
+type modelParamsFile struct {
 	StructuralParams map[string]interface{} `json:"structural_params"`
 	CalibratedParams map[string]interface{} `json:"calibrated_params"`
 }
 
-func (e *HttpEngine) buildABMParametersResponse(stockCode string) map[string]interface{} {
-	response := cloneABMParameters(e.config.AbmParameters)
-	stockCode = normalizeABMStockCode(stockCode)
-	tunedParams, hasTunedParams := loadABMStockTunedParams(stockCode, &e.config)
+func BuildParametersResponse(base map[string]interface{}, stockCode string, config *paradigm.BHLayer2NodeConfig) map[string]interface{} {
+	response := cloneParameters(base)
+	stockCode = NormalizeStockCode(stockCode)
+	tunedParams, hasTunedParams := LoadStockTunedParams(stockCode, config)
 
-	for _, key := range abmTunableParamKeys {
-		spec := ensureABMParamSpec(response, key)
+	for _, key := range TunableParamKeys {
+		spec := ensureParamSpec(response, key)
 		if value, ok := tunedParams[key]; hasTunedParams && ok {
 			spec["default"] = value
 			spec["source"] = "tuned"
@@ -108,7 +108,7 @@ func (e *HttpEngine) buildABMParametersResponse(stockCode string) map[string]int
 	return response
 }
 
-func cloneABMParameters(src map[string]interface{}) map[string]interface{} {
+func cloneParameters(src map[string]interface{}) map[string]interface{} {
 	dst := make(map[string]interface{}, len(src))
 	for key, value := range src {
 		if nested, ok := value.(map[string]interface{}); ok {
@@ -124,48 +124,46 @@ func cloneABMParameters(src map[string]interface{}) map[string]interface{} {
 	return dst
 }
 
-func ensureABMParamSpec(parameters map[string]interface{}, key string) map[string]interface{} {
+func ensureParamSpec(parameters map[string]interface{}, key string) map[string]interface{} {
 	if existing, ok := parameters[key].(map[string]interface{}); ok {
 		return existing
 	}
 
 	paramType := "float"
-	if abmIntParamKeys[key] {
+	if intParamKeys[key] {
 		paramType = "int"
 	}
 	spec := map[string]interface{}{
-		"label":   abmParamLabels[key],
+		"label":   paramLabels[key],
 		"type":    paramType,
 		"default": nil,
 	}
-	if value, ok := abmRuntimeParamDefaults[key]; ok {
+	if value, ok := runtimeParamDefaults[key]; ok {
 		spec["default"] = value
 	}
 	parameters[key] = spec
 	return spec
 }
 
-func loadABMStockTunedParams(stockCode string, config *paradigm.BHLayer2NodeConfig) (map[string]interface{}, bool) {
-	stockCode = normalizeABMStockCode(stockCode)
+func LoadStockTunedParams(stockCode string, config *paradigm.BHLayer2NodeConfig) (map[string]interface{}, bool) {
+	stockCode = NormalizeStockCode(stockCode)
 	if stockCode == "" {
 		return map[string]interface{}{}, false
 	}
 
-	paramsDir := abmStockParamDir(config)
-
-	path := filepath.Join(paramsDir, stockCode, "model_params.json")
+	path := filepath.Join(StockParamDir(config), stockCode, "model_params.json")
 	file, err := os.Open(path)
 	if err != nil {
 		return map[string]interface{}{}, false
 	}
 	defer file.Close()
 
-	allowed := make(map[string]bool, len(abmTunableParamKeys))
-	for _, key := range abmTunableParamKeys {
+	allowed := make(map[string]bool, len(TunableParamKeys))
+	for _, key := range TunableParamKeys {
 		allowed[key] = true
 	}
 
-	var payload abmModelParamsFile
+	var payload modelParamsFile
 	decoder := json.NewDecoder(file)
 	decoder.UseNumber()
 	if err := decoder.Decode(&payload); err != nil {
@@ -173,35 +171,35 @@ func loadABMStockTunedParams(stockCode string, config *paradigm.BHLayer2NodeConf
 	}
 
 	result := map[string]interface{}{}
-	mergeABMParamValues(result, payload.StructuralParams, allowed)
-	mergeABMParamValues(result, payload.CalibratedParams, allowed)
+	mergeParamValues(result, payload.StructuralParams, allowed)
+	mergeParamValues(result, payload.CalibratedParams, allowed)
 	return result, len(result) > 0
 }
 
-func mergeABMParamValues(dst map[string]interface{}, src map[string]interface{}, allowed map[string]bool) {
+func mergeParamValues(dst map[string]interface{}, src map[string]interface{}, allowed map[string]bool) {
 	for key, raw := range src {
 		if !allowed[key] {
 			continue
 		}
-		value, ok := normalizeABMParamValue(key, raw)
+		value, ok := normalizeParamValue(key, raw)
 		if ok {
 			dst[key] = value
 		}
 	}
 }
 
-func normalizeABMParamValue(key string, raw interface{}) (interface{}, bool) {
-	value, ok := abmNumericValue(raw)
+func normalizeParamValue(key string, raw interface{}) (interface{}, bool) {
+	value, ok := numericValue(raw)
 	if !ok {
 		return nil, false
 	}
-	if abmIntParamKeys[key] {
+	if intParamKeys[key] {
 		return int(value), true
 	}
 	return value, true
 }
 
-func abmNumericValue(raw interface{}) (float64, bool) {
+func numericValue(raw interface{}) (float64, bool) {
 	switch value := raw.(type) {
 	case json.Number:
 		parsed, err := value.Float64()
@@ -224,7 +222,7 @@ func abmNumericValue(raw interface{}) (float64, bool) {
 	}
 }
 
-func normalizeABMStockCode(raw string) string {
+func NormalizeStockCode(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ""

@@ -1,4 +1,4 @@
-package HTTP
+package abm
 
 import (
 	"BHLayer2Node/paradigm"
@@ -11,13 +11,13 @@ import (
 
 var horizonRegexp = regexp.MustCompile(`T\+(\d+)`)
 
-// buildABMV2TaskParams 将前端的扁平 ABM_V2 请求补齐成执行链路需要的完整 payload。
+// BuildV2TaskParams 将前端的扁平 ABM_V2 请求补齐成执行链路需要的完整 payload。
 // 前端只传股票信息 + 结构参数，predict/abm/evaluation 等运行参数由这里兜底构造。
-func buildABMV2TaskParams(raw map[string]interface{}, nodeID int32) (map[string]interface{}, error) {
-	return buildABMV2TaskParamsWithConfig(raw, nodeID, nil)
+func BuildV2TaskParams(raw map[string]interface{}, nodeID int32) (map[string]interface{}, error) {
+	return BuildV2TaskParamsWithConfig(raw, nodeID, nil)
 }
 
-func buildABMV2TaskParamsWithConfig(raw map[string]interface{}, nodeID int32, config *paradigm.BHLayer2NodeConfig) (map[string]interface{}, error) {
+func BuildV2TaskParamsWithConfig(raw map[string]interface{}, nodeID int32, config *paradigm.BHLayer2NodeConfig) (map[string]interface{}, error) {
 	stockCode := strings.TrimSpace(stringValue(raw["stockCode"]))
 	if stockCode == "" {
 		return nil, fmt.Errorf("stockCode is required")
@@ -27,7 +27,7 @@ func buildABMV2TaskParamsWithConfig(raw map[string]interface{}, nodeID int32, co
 		return nil, fmt.Errorf("stockName is required")
 	}
 
-	horizonDays, err := parseABMV2HorizonDays(raw)
+	horizonDays, err := parseV2HorizonDays(raw)
 	if err != nil {
 		return nil, err
 	}
@@ -71,20 +71,20 @@ func buildABMV2TaskParamsWithConfig(raw map[string]interface{}, nodeID int32, co
 	}
 	if strings.TrimSpace(stringValue(abmCfg["model_params_root"])) == "" {
 		// 离线参数按股票统一放在共享目录，避免多节点重复复制大规模参数文件。
-		abmCfg["model_params_root"] = abmStockParamDir(config)
+		abmCfg["model_params_root"] = StockParamDir(config)
 	}
 	structuralParams := mapFromAny(abmCfg["structural_params"])
 	if len(structuralParams) == 0 {
 		structuralParams = map[string]interface{}{}
 	}
-	if tunedParams, ok := loadABMStockTunedParams(stockCode, config); ok {
-		for _, key := range abmTunableParamKeys {
+	if tunedParams, ok := LoadStockTunedParams(stockCode, config); ok {
+		for _, key := range TunableParamKeys {
 			if value, exists := tunedParams[key]; exists {
 				structuralParams[key] = value
 			}
 		}
 	}
-	for _, key := range abmTunableParamKeys {
+	for _, key := range TunableParamKeys {
 		if value, ok := raw[key]; ok && value != nil {
 			structuralParams[key] = value
 		}
@@ -121,7 +121,7 @@ func buildABMV2TaskParamsWithConfig(raw map[string]interface{}, nodeID int32, co
 	return params, nil
 }
 
-func parseABMV2HorizonDays(raw map[string]interface{}) (int, error) {
+func parseV2HorizonDays(raw map[string]interface{}) (int, error) {
 	switch value := raw["horizon"].(type) {
 	case nil:
 		return 1, nil

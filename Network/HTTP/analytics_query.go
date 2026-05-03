@@ -1,6 +1,7 @@
 package HTTP
 
 import (
+	"BHLayer2Node/Network/HTTP/abm"
 	"BHLayer2Node/paradigm"
 	"BHLayer2Node/pb/service"
 	"BHLayer2Node/utils"
@@ -29,6 +30,8 @@ type analyticsQueryItem struct {
 	Date      string
 	Data      interface{}
 }
+
+type AnalyticsQueryItem = analyticsQueryItem
 
 // handleAnalyticsQuery 统一处理 4 种查询口径：
 // 1. taskId + stockId -> 精确返回单股票分析结果
@@ -191,6 +194,10 @@ func attachCrashRiskTopRiskListToItems(items []analyticsQueryItem) []analyticsQu
 	return items
 }
 
+func AttachCrashRiskTopRiskListToItems(items []AnalyticsQueryItem) []AnalyticsQueryItem {
+	return attachCrashRiskTopRiskListToItems(items)
+}
+
 func injectCrashRiskTopRiskList(data interface{}, topRiskList []map[string]interface{}) interface{} {
 	payload, ok := data.(map[string]interface{})
 	if !ok {
@@ -243,6 +250,10 @@ func buildCrashRiskTopRiskList(items []analyticsQueryItem) []map[string]interfac
 		})
 	}
 	return result
+}
+
+func BuildCrashRiskTopRiskList(items []AnalyticsQueryItem) []map[string]interface{} {
+	return buildCrashRiskTopRiskList(items)
 }
 
 func extractCrashRiskScore(data interface{}) (float64, bool) {
@@ -561,6 +572,10 @@ func encodeAnalysisTypeRequest(analType paradigm.AnalysisType, options map[strin
 	return fmt.Sprintf("%s?%s", analType.String(), strings.Join(queryParts, "&"))
 }
 
+func EncodeAnalysisTypeRequest(analType paradigm.AnalysisType, options map[string]string) string {
+	return encodeAnalysisTypeRequest(analType, options)
+}
+
 func sortTasksByStartTimeDesc(tasks []*paradigm.Task) {
 	sort.SliceStable(tasks, func(i, j int) bool {
 		return tasks[i].StartTime.After(tasks[j].StartTime)
@@ -608,7 +623,14 @@ func extractTaskStockName(task *paradigm.Task) string {
 	if task == nil {
 		return ""
 	}
-	return strings.TrimSpace(stringifyTaskParam(task.Params["stockName"]))
+	return abm.ResolveStockDisplayName(
+		extractTaskStockCode(task),
+		stringifyTaskParam(task.Params["stockName"]),
+	)
+}
+
+func ExtractTaskStockName(task *paradigm.Task) string {
+	return extractTaskStockName(task)
 }
 
 func stringifyTaskParam(value interface{}) string {

@@ -2,6 +2,7 @@ package HTTP
 
 import (
 	"BHLayer2Node/Collector"
+	"BHLayer2Node/Network/HTTP/abm"
 	"BHLayer2Node/Query"
 	"BHLayer2Node/paradigm"
 	"errors"
@@ -276,7 +277,7 @@ func (e *HttpEngine) GetHttpService(service HttpServiceEnum) (*HttpService, erro
 
 				c.JSON(http.StatusOK, paradigm.HttpResponse{
 					Message: "操作成功",
-					Data:    tasks,
+					Data:    buildExecutionLogViews(tasks),
 					Code:    "S000000",
 				})
 			},
@@ -317,7 +318,7 @@ func (e *HttpEngine) GetHttpService(service HttpServiceEnum) (*HttpService, erro
 
 				c.JSON(http.StatusOK, paradigm.HttpResponse{
 					Message: "操作成功",
-					Data:    task,
+					Data:    buildExecutionLogView(task),
 					Code:    "S000000",
 				})
 			},
@@ -328,11 +329,11 @@ func (e *HttpEngine) GetHttpService(service HttpServiceEnum) (*HttpService, erro
 			Url:    "/simulation/create-task",
 			Method: "POST",
 			Handler: func(c *gin.Context) {
-				isScheduled := isScheduledCreateTask(c)
+				isScheduled := abm.IsScheduledCreateTask(c)
 				var rawTasks []map[string]interface{}
 				if isScheduled {
 					var err error
-					rawTasks, err = e.buildScheduledABMV2RawTasks()
+					rawTasks, err = abm.BuildScheduledV2RawTasks(&e.config)
 					if err != nil {
 						c.JSON(http.StatusInternalServerError, paradigm.HttpResponse{
 							Message: "定时任务参数构造失败: " + err.Error(),
@@ -358,7 +359,7 @@ func (e *HttpEngine) GetHttpService(service HttpServiceEnum) (*HttpService, erro
 					taskSize := int32(1)
 					// ABM_V2 不在创建阶段预分配节点；Scheduler 每轮根据 Monitor 当前负载动态选择节点。
 					// 最终产出节点以 slots 表中 Finished slot 的 node_id 为准，供分析接口定位。
-					taskParams, err := buildABMV2TaskParamsWithConfig(raw, -1, &e.config)
+					taskParams, err := abm.BuildV2TaskParamsWithConfig(raw, -1, &e.config)
 					if err != nil {
 						c.JSON(http.StatusBadRequest, paradigm.HttpResponse{
 							Message: "ABM_V2 参数错误: " + err.Error(),
@@ -469,12 +470,12 @@ func (e *HttpEngine) GetHttpService(service HttpServiceEnum) (*HttpService, erro
 				result := make([]map[string]interface{}, 0)
 				for _, t := range tasks {
 					p := t.Params
-					stockCode := p["stockCode"]
-					stockName := p["stockName"]
-					if stockCode == nil || stockName == nil {
+					stockCode := strings.TrimSpace(stringifyTaskParam(p["stockCode"]))
+					if stockCode == "" {
 						// 历史脏数据或非平台分析任务不应出现在股票分析列表里，直接跳过。
 						continue
 					}
+					stockName := abm.ResolveStockDisplayName(stockCode, stringifyTaskParam(p["stockName"]))
 					stockID := p["stockId"]
 					if stockID == nil {
 						// ABM_V2 当前请求体只稳定传 stockCode，这里回退保证前端有可用主键。
@@ -527,7 +528,7 @@ func (e *HttpEngine) GetHttpService(service HttpServiceEnum) (*HttpService, erro
 				if stockCode == "" {
 					stockCode = strings.TrimSpace(c.Query("stockId"))
 				}
-				parameters := e.buildABMParametersResponse(stockCode)
+				parameters := abm.BuildParametersResponse(e.config.AbmParameters, stockCode, &e.config)
 
 				c.JSON(http.StatusOK, paradigm.HttpResponse{
 					Message: "操作成功",

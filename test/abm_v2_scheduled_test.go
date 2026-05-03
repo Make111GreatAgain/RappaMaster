@@ -1,6 +1,7 @@
-package HTTP
+package test
 
 import (
+	"BHLayer2Node/Network/HTTP/abm"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -20,8 +21,7 @@ func TestBuildScheduledABMV2RawTasksUsesSupportedStockIntersection(t *testing.T)
 	t.Setenv("ABM_STOCK_PARAM_DIR", paramsDir)
 	t.Setenv("ABM_STOCK_DATA_DIR", dataDir)
 
-	engine := &HttpEngine{}
-	tasks, err := engine.buildScheduledABMV2RawTasks()
+	tasks, err := abm.BuildScheduledV2RawTasks(nil)
 	if err != nil {
 		t.Fatalf("build scheduled raw tasks: %v", err)
 	}
@@ -33,8 +33,8 @@ func TestBuildScheduledABMV2RawTasksUsesSupportedStockIntersection(t *testing.T)
 		t.Fatalf("scheduled stock codes should be sorted and normalized, got %#v", tasks)
 	}
 	for _, task := range tasks {
-		if task["horizon"] != scheduledABMV2Horizon {
-			t.Fatalf("scheduled horizon should be fixed to %s, got %#v", scheduledABMV2Horizon, task["horizon"])
+		if task["horizon"] != abm.ScheduledV2Horizon {
+			t.Fatalf("scheduled horizon should be fixed to %s, got %#v", abm.ScheduledV2Horizon, task["horizon"])
 		}
 		if _, exists := task["N_FT"]; exists {
 			t.Fatalf("scheduled task should not carry request override params: %#v", task)
@@ -46,13 +46,13 @@ func TestIsScheduledCreateTaskUsesIsScheduledOnly(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := gin.CreateTestContext(nil)
 	ctx.Request = httptest.NewRequest("POST", "/simulation/create-task?isScheduled=true", nil)
-	if !isScheduledCreateTask(ctx) {
+	if !abm.IsScheduledCreateTask(ctx) {
 		t.Fatalf("expected isScheduled=true to be accepted as scheduled")
 	}
 
 	ctx, _ = gin.CreateTestContext(nil)
 	ctx.Request = httptest.NewRequest("POST", "/simulation/create-task?isSchdule=true", nil)
-	if isScheduledCreateTask(ctx) {
+	if abm.IsScheduledCreateTask(ctx) {
 		t.Fatalf("isSchdule should not be accepted")
 	}
 }
