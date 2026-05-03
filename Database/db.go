@@ -70,10 +70,22 @@ func (o DatabaseService) AutoMigrate() error {
 
 func (o DatabaseService) TruncateAll() error {
 	tables := []string{"date_records", "dev_epoches", "dev_references", "slots", "tasks", "platform_tasks"}
-	for _, table := range tables {
-		if err := o.db.Exec(fmt.Sprintf("TRUNCATE TABLE %s", table)).Error; err != nil {
-			return fmt.Errorf("failed to truncate table %s: %v", table, err)
+	return o.db.Connection(func(tx *gorm.DB) (err error) {
+		if err = tx.Exec("SET FOREIGN_KEY_CHECKS = 0").Error; err != nil {
+			return fmt.Errorf("failed to disable foreign key checks: %w", err)
 		}
-	}
-	return nil
+
+		defer func() {
+			if enableErr := tx.Exec("SET FOREIGN_KEY_CHECKS = 1").Error; enableErr != nil && err == nil {
+				err = fmt.Errorf("failed to enable foreign key checks: %w", enableErr)
+			}
+		}()
+
+		for _, table := range tables {
+			if err = tx.Exec(fmt.Sprintf("TRUNCATE TABLE `%s`", table)).Error; err != nil {
+				return fmt.Errorf("failed to truncate table %s: %w", table, err)
+			}
+		}
+		return nil
+	})
 }
