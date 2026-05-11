@@ -69,7 +69,7 @@ func (s *Scheduler) process(task paradigm.UnprocessedTask) {
 			scheduleSizes = []int32{1}
 		} else {
 			for {
-				adviceRequest := paradigm.NewAdviceRequest(1, 1)
+				adviceRequest := paradigm.NewModelAdviceRequest(1, 1, paradigm.ABM_V2)
 				s.channel.MonitorAdviceChannel <- adviceRequest
 				resp := adviceRequest.ReceiveResponse()
 				if len(resp.NodeIDs) > 0 {

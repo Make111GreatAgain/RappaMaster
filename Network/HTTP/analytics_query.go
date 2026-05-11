@@ -8,9 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -18,20 +16,9 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-var errAnalyticsNotFound = errors.New("analytics result not found")
+var errAnalyticsNotFound = abm.ErrAnalyticsNotFound
 
-type analyticsQueryItem struct {
-	Task      *paradigm.Task
-	TaskID    string
-	TaskName  string
-	StockID   string
-	StockCode string
-	StockName string
-	Date      string
-	Data      interface{}
-}
-
-type AnalyticsQueryItem = analyticsQueryItem
+type AnalyticsQueryItem = abm.AnalyticsQueryItem
 
 // handleAnalyticsQuery 统一处理 4 种查询口径：
 // 1. taskId + stockId -> 精确返回单股票分析结果
@@ -41,7 +28,7 @@ type AnalyticsQueryItem = analyticsQueryItem
 func (e *HttpEngine) handleAnalyticsQuery(c *gin.Context, analType paradigm.AnalysisType, notFoundMsg, internalMsg, code string) {
 	taskID := strings.TrimSpace(c.Query("taskId"))
 	stockID := strings.TrimSpace(c.Query("stockId"))
-	options := buildAnalyticsQueryOptions(c, analType)
+	options := abm.BuildAnalyticsQueryOptions(c.Query, analType)
 
 	data, err := e.QueryAnalytics(taskID, stockID, analType, options)
 	if err != nil {
@@ -65,60 +52,6 @@ func (e *HttpEngine) handleAnalyticsQuery(c *gin.Context, analType paradigm.Anal
 	c.JSON(200, paradigm.HttpResponse{Message: "操作成功", Data: data, Code: "S000000"})
 }
 
-func normalizeInvestorCompositionResponse(data interface{}, selectedDate, selectedType string) interface{} {
-	normalizedType := strings.TrimSpace(strings.ToLower(selectedType))
-	if normalizedType == "" {
-		normalizedType = "custom"
-	}
-
-	switch payload := data.(type) {
-	case map[string]interface{}:
-		if nested, ok := payload["data"].(map[string]interface{}); ok {
-			payload["data"] = normalizeInvestorCompositionPayload(nested, selectedDate, normalizedType)
-			return payload
-		}
-		return normalizeInvestorCompositionPayload(payload, selectedDate, normalizedType)
-	case []map[string]interface{}:
-		for index := range payload {
-			payload[index] = normalizeInvestorCompositionResponse(payload[index], selectedDate, normalizedType).(map[string]interface{})
-		}
-		return payload
-	case []interface{}:
-		for index := range payload {
-			payload[index] = normalizeInvestorCompositionResponse(payload[index], selectedDate, normalizedType)
-		}
-		return payload
-	default:
-		return data
-	}
-}
-
-func normalizeInvestorCompositionPayload(payload map[string]interface{}, selectedDate, selectedType string) map[string]interface{} {
-	if payload == nil {
-		return map[string]interface{}{}
-	}
-
-	meta, _ := payload["meta"].(map[string]interface{})
-	if meta == nil {
-		meta = map[string]interface{}{}
-	}
-	meta["selectedDate"] = strings.TrimSpace(selectedDate)
-	meta["selectedType"] = selectedType
-	payload["meta"] = meta
-
-	if history, ok := payload["historyData"].(map[string]interface{}); ok {
-		categoryLabel := "当前配置"
-		if strings.TrimSpace(selectedDate) != "" {
-			categoryLabel = strings.TrimSpace(selectedDate)
-		} else if selectedType == "history" {
-			categoryLabel = "历史快照"
-		}
-		history["categories"] = []string{categoryLabel}
-		payload["historyData"] = history
-	}
-	return payload
-}
-
 func (e *HttpEngine) QueryAnalytics(taskID, stockID string, analType paradigm.AnalysisType, options map[string]string) (interface{}, error) {
 	switch {
 	case taskID != "" && stockID != "":
@@ -140,7 +73,7 @@ func (e *HttpEngine) QueryAnalytics(taskID, stockID string, analType paradigm.An
 			return nil, err
 		}
 		if analType == paradigm.CrashRisk {
-			items = attachCrashRiskTopRiskListToItems(items)
+			items = abm.AttachCrashRiskTopRiskListToItems(items)
 		}
 		return e.wrapAnalyticsItems(items), nil
 	case stockID != "":
@@ -150,8 +83,8 @@ func (e *HttpEngine) QueryAnalytics(taskID, stockID string, analType paradigm.An
 		}
 		if analType == paradigm.CrashRisk {
 			if items, err := e.queryLatestAnalyticsForAllStocks(analType, options); err == nil {
-				topRiskList := buildCrashRiskTopRiskList(items)
-				item.Data = injectCrashRiskTopRiskList(item.Data, topRiskList)
+				topRiskList := abm.BuildCrashRiskTopRiskList(items)
+				item.Data = abm.InjectCrashRiskTopRiskList(item.Data, topRiskList)
 			}
 		}
 		return e.wrapAnalyticsItem(item), nil
@@ -161,14 +94,14 @@ func (e *HttpEngine) QueryAnalytics(taskID, stockID string, analType paradigm.An
 			return nil, err
 		}
 		if analType == paradigm.CrashRisk {
-			items = attachCrashRiskTopRiskListToItems(items)
+			items = abm.AttachCrashRiskTopRiskListToItems(items)
 		}
 		return e.wrapAnalyticsItems(items), nil
 	}
 }
 
 func (e *HttpEngine) attachCrashRiskTopRiskListToPayload(taskID string, task *paradigm.Task, payload interface{}) interface{} {
-	var items []analyticsQueryItem
+	var items []abm.AnalyticsQueryItem
 	switch {
 	case taskID != "":
 		if resolved, err := e.queryAnalyticsByTaskID(taskID, paradigm.CrashRisk, nil); err == nil {
@@ -181,151 +114,12 @@ func (e *HttpEngine) attachCrashRiskTopRiskListToPayload(taskID string, task *pa
 	}
 
 	if len(items) == 0 && task != nil {
-		items = []analyticsQueryItem{e.buildAnalyticsItem(task, payload)}
+		items = []abm.AnalyticsQueryItem{e.buildAnalyticsItem(task, payload)}
 	}
-	return injectCrashRiskTopRiskList(payload, buildCrashRiskTopRiskList(items))
+	return abm.InjectCrashRiskTopRiskList(payload, abm.BuildCrashRiskTopRiskList(items))
 }
 
-func attachCrashRiskTopRiskListToItems(items []analyticsQueryItem) []analyticsQueryItem {
-	topRiskList := buildCrashRiskTopRiskList(items)
-	for i := range items {
-		items[i].Data = injectCrashRiskTopRiskList(items[i].Data, topRiskList)
-	}
-	return items
-}
-
-func AttachCrashRiskTopRiskListToItems(items []AnalyticsQueryItem) []AnalyticsQueryItem {
-	return attachCrashRiskTopRiskListToItems(items)
-}
-
-func injectCrashRiskTopRiskList(data interface{}, topRiskList []map[string]interface{}) interface{} {
-	payload, ok := data.(map[string]interface{})
-	if !ok {
-		return data
-	}
-	payload["topRiskList"] = topRiskList
-	return payload
-}
-
-func buildCrashRiskTopRiskList(items []analyticsQueryItem) []map[string]interface{} {
-	type entry struct {
-		Rank        int
-		Code        string
-		Name        string
-		Probability float64
-	}
-
-	entries := make([]entry, 0, len(items))
-	for _, item := range items {
-		score, ok := extractCrashRiskScore(item.Data)
-		if !ok {
-			continue
-		}
-		code := strings.TrimSpace(item.StockCode)
-		if code == "" {
-			code = strings.TrimSpace(item.StockID)
-		}
-		entries = append(entries, entry{
-			Code:        code,
-			Name:        strings.TrimSpace(item.StockName),
-			Probability: score,
-		})
-	}
-
-	sort.SliceStable(entries, func(i, j int) bool {
-		if entries[i].Probability == entries[j].Probability {
-			return entries[i].Code < entries[j].Code
-		}
-		return entries[i].Probability > entries[j].Probability
-	})
-
-	result := make([]map[string]interface{}, 0, len(entries))
-	for i := range entries {
-		entries[i].Rank = i + 1
-		result = append(result, map[string]interface{}{
-			"rank":        entries[i].Rank,
-			"code":        entries[i].Code,
-			"name":        entries[i].Name,
-			"probability": roundFloat(entries[i].Probability, 6),
-		})
-	}
-	return result
-}
-
-func BuildCrashRiskTopRiskList(items []AnalyticsQueryItem) []map[string]interface{} {
-	return buildCrashRiskTopRiskList(items)
-}
-
-func extractCrashRiskScore(data interface{}) (float64, bool) {
-	payload, ok := data.(map[string]interface{})
-	if !ok {
-		return 0, false
-	}
-
-	best := math.Inf(-1)
-	if series, ok := payload["forecastSeries"].([]interface{}); ok {
-		// 风险榜单按 5% 跌幅出现概率排序，对应 predict_fv.csv 中的 Prob_Drop_5pct。
-		for _, raw := range series {
-			row, ok := raw.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			if score, ok := parseFloat64(row["probDrop5pct"]); ok && !math.IsNaN(score) {
-				if score > best {
-					best = score
-				}
-			}
-		}
-		if !math.IsInf(best, -1) {
-			return clampProbability(best), true
-		}
-	}
-	return 0, false
-}
-
-func parseFloat64(value interface{}) (float64, bool) {
-	switch typed := value.(type) {
-	case float64:
-		return typed, true
-	case float32:
-		return float64(typed), true
-	case int:
-		return float64(typed), true
-	case int32:
-		return float64(typed), true
-	case int64:
-		return float64(typed), true
-	case uint:
-		return float64(typed), true
-	case uint32:
-		return float64(typed), true
-	case uint64:
-		return float64(typed), true
-	case string:
-		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
-		if err == nil {
-			return parsed, true
-		}
-	}
-	return 0, false
-}
-
-func clampProbability(value float64) float64 {
-	if value < 0 {
-		return 0
-	}
-	if value > 1 {
-		return 1
-	}
-	return value
-}
-
-func roundFloat(value float64, digits int) float64 {
-	factor := math.Pow10(digits)
-	return math.Round(value*factor) / factor
-}
-
-func (e *HttpEngine) queryAnalyticsByTaskID(taskID string, analType paradigm.AnalysisType, options map[string]string) ([]analyticsQueryItem, error) {
+func (e *HttpEngine) queryAnalyticsByTaskID(taskID string, analType paradigm.AnalysisType, options map[string]string) ([]abm.AnalyticsQueryItem, error) {
 	platformTask, err := e.dbService.GetPlatformTaskByID(taskID)
 	if err != nil {
 		return nil, err
@@ -343,10 +137,10 @@ func (e *HttpEngine) queryAnalyticsByTaskID(taskID string, analType paradigm.Ana
 		subTasks = append(subTasks, &task)
 	}
 	sort.SliceStable(subTasks, func(i, j int) bool {
-		return extractTaskStockCode(subTasks[i]) < extractTaskStockCode(subTasks[j])
+		return abm.ExtractTaskStockCode(subTasks[i]) < abm.ExtractTaskStockCode(subTasks[j])
 	})
 
-	items := make([]analyticsQueryItem, 0, len(subTasks))
+	items := make([]abm.AnalyticsQueryItem, 0, len(subTasks))
 	for _, task := range subTasks {
 		payload, err := e.fetchNodeAnalyticsByTask(task, analType, options)
 		if err != nil {
@@ -361,19 +155,19 @@ func (e *HttpEngine) queryAnalyticsByTaskID(taskID string, analType paradigm.Ana
 	return items, nil
 }
 
-func (e *HttpEngine) queryLatestAnalyticsByStockID(stockID string, analType paradigm.AnalysisType, options map[string]string) (analyticsQueryItem, error) {
+func (e *HttpEngine) queryLatestAnalyticsByStockID(stockID string, analType paradigm.AnalysisType, options map[string]string) (abm.AnalyticsQueryItem, error) {
 	tasks, err := e.dbService.GetFinishedTasks()
 	if err != nil {
-		return analyticsQueryItem{}, err
+		return abm.AnalyticsQueryItem{}, err
 	}
 
 	candidates := make([]*paradigm.Task, 0)
 	for _, task := range tasks {
-		if matchTaskStock(task, stockID) {
+		if abm.MatchTaskStock(task, stockID) {
 			candidates = append(candidates, task)
 		}
 	}
-	sortTasksByStartTimeDesc(candidates)
+	abm.SortTasksByStartTimeDesc(candidates)
 
 	for _, task := range candidates {
 		payload, err := e.fetchNodeAnalyticsByTask(task, analType, options)
@@ -383,10 +177,10 @@ func (e *HttpEngine) queryLatestAnalyticsByStockID(stockID string, analType para
 		}
 		return e.buildAnalyticsItem(task, payload), nil
 	}
-	return analyticsQueryItem{}, fmt.Errorf("%w: no readable analytics found for stock %s", errAnalyticsNotFound, stockID)
+	return abm.AnalyticsQueryItem{}, fmt.Errorf("%w: no readable analytics found for stock %s", errAnalyticsNotFound, stockID)
 }
 
-func (e *HttpEngine) queryLatestAnalyticsForAllStocks(analType paradigm.AnalysisType, options map[string]string) ([]analyticsQueryItem, error) {
+func (e *HttpEngine) queryLatestAnalyticsForAllStocks(analType paradigm.AnalysisType, options map[string]string) ([]abm.AnalyticsQueryItem, error) {
 	tasks, err := e.dbService.GetFinishedTasks()
 	if err != nil {
 		return nil, err
@@ -394,7 +188,7 @@ func (e *HttpEngine) queryLatestAnalyticsForAllStocks(analType paradigm.Analysis
 
 	grouped := make(map[string][]*paradigm.Task)
 	for _, task := range tasks {
-		stockCode := extractTaskStockCode(task)
+		stockCode := abm.ExtractTaskStockCode(task)
 		if stockCode == "" {
 			continue
 		}
@@ -407,10 +201,10 @@ func (e *HttpEngine) queryLatestAnalyticsForAllStocks(analType paradigm.Analysis
 	}
 	sort.Strings(stockCodes)
 
-	items := make([]analyticsQueryItem, 0, len(stockCodes))
+	items := make([]abm.AnalyticsQueryItem, 0, len(stockCodes))
 	for _, stockCode := range stockCodes {
 		group := grouped[stockCode]
-		sortTasksByStartTimeDesc(group)
+		abm.SortTasksByStartTimeDesc(group)
 		for _, task := range group {
 			payload, err := e.fetchNodeAnalyticsByTask(task, analType, options)
 			if err != nil {
@@ -435,7 +229,7 @@ func (e *HttpEngine) resolveTaskByPlatformTaskAndStock(taskID, stockID string) (
 	}
 	if platformTask == nil {
 		// 兼容旧调用：允许直接传子任务 sign，或者继续按旧格式拼接一次。
-		if task, err := e.dbService.GetTaskByID(taskID); err == nil && matchTaskStock(task, stockID) {
+		if task, err := e.dbService.GetTaskByID(taskID); err == nil && abm.MatchTaskStock(task, stockID) {
 			return task, nil
 		}
 		task, err := e.dbService.GetTaskByID(fmt.Sprintf("SubTask-%s-%s", taskID, stockID))
@@ -450,21 +244,21 @@ func (e *HttpEngine) resolveTaskByPlatformTaskAndStock(taskID, stockID string) (
 		if task.Model != paradigm.ABM_V2 {
 			continue
 		}
-		if matchTaskStock(&task, stockID) {
+		if abm.MatchTaskStock(&task, stockID) {
 			return &task, nil
 		}
 	}
 	return nil, fmt.Errorf("%w: stock %s not found under task %s", errAnalyticsNotFound, stockID, taskID)
 }
 
-func (e *HttpEngine) buildAnalyticsItem(task *paradigm.Task, payload interface{}) analyticsQueryItem {
-	item := analyticsQueryItem{
+func (e *HttpEngine) buildAnalyticsItem(task *paradigm.Task, payload interface{}) abm.AnalyticsQueryItem {
+	item := abm.AnalyticsQueryItem{
 		Task:      task,
-		TaskID:    displayTaskID(task),
-		TaskName:  fmt.Sprintf("%s 风险监测", extractTaskStockName(task)),
-		StockID:   extractTaskStockID(task),
-		StockCode: extractTaskStockCode(task),
-		StockName: extractTaskStockName(task),
+		TaskID:    abm.DisplayTaskID(task),
+		TaskName:  fmt.Sprintf("%s 风险监测", abm.ExtractTaskStockName(task)),
+		StockID:   abm.ExtractTaskStockID(task),
+		StockCode: abm.ExtractTaskStockCode(task),
+		StockName: abm.ExtractTaskStockName(task),
 		Date:      task.StartTime.Format("2006-01-02"),
 		Data:      payload,
 	}
@@ -481,7 +275,7 @@ func (e *HttpEngine) buildAnalyticsItem(task *paradigm.Task, payload interface{}
 	return item
 }
 
-func (e *HttpEngine) wrapAnalyticsItem(item analyticsQueryItem) map[string]interface{} {
+func (e *HttpEngine) wrapAnalyticsItem(item abm.AnalyticsQueryItem) map[string]interface{} {
 	return map[string]interface{}{
 		"taskId":    item.TaskID,
 		"taskName":  item.TaskName,
@@ -493,7 +287,7 @@ func (e *HttpEngine) wrapAnalyticsItem(item analyticsQueryItem) map[string]inter
 	}
 }
 
-func (e *HttpEngine) wrapAnalyticsItems(items []analyticsQueryItem) []map[string]interface{} {
+func (e *HttpEngine) wrapAnalyticsItems(items []abm.AnalyticsQueryItem) []map[string]interface{} {
 	result := make([]map[string]interface{}, 0, len(items))
 	for _, item := range items {
 		result = append(result, e.wrapAnalyticsItem(item))
@@ -519,7 +313,7 @@ func (e *HttpEngine) fetchNodeAnalyticsByTask(task *paradigm.Task, analType para
 	client := service.NewRappaExecutorClient(conn)
 	resp, err := client.GetAnalytics(context.Background(), &service.AnalyticalRequest{
 		Sign:         task.Sign,
-		AnalysisType: encodeAnalysisTypeRequest(analType, options),
+		AnalysisType: abm.EncodeAnalysisTypeRequest(analType, options),
 	})
 	if err != nil {
 		if st, ok := status.FromError(err); ok && st.Code() == codes.NotFound {
@@ -532,120 +326,6 @@ func (e *HttpEngine) fetchNodeAnalyticsByTask(task *paradigm.Task, analType para
 		return resp.Data.AsMap(), nil
 	}
 	return nil, fmt.Errorf("%w: empty analytics response for %s", errAnalyticsNotFound, task.Sign)
-}
-
-func buildAnalyticsQueryOptions(c *gin.Context, analType paradigm.AnalysisType) map[string]string {
-	options := map[string]string{}
-	switch analType {
-	case paradigm.PerformanceComparison:
-		if model := strings.ToUpper(strings.TrimSpace(c.Query("selectedModel"))); model != "" {
-			options["selectedModel"] = model
-		}
-	case paradigm.OrderDynamics:
-		if date := strings.TrimSpace(c.Query("date")); date != "" {
-			options["date"] = date
-		}
-	}
-	return options
-}
-
-func encodeAnalysisTypeRequest(analType paradigm.AnalysisType, options map[string]string) string {
-	if len(options) == 0 {
-		return analType.String()
-	}
-
-	queryParts := make([]string, 0, len(options))
-	switch analType {
-	case paradigm.PerformanceComparison:
-		if model := strings.TrimSpace(options["selectedModel"]); model != "" {
-			queryParts = append(queryParts, fmt.Sprintf("selectedModel=%s", model))
-		}
-	case paradigm.OrderDynamics:
-		if date := strings.TrimSpace(options["date"]); date != "" {
-			queryParts = append(queryParts, fmt.Sprintf("date=%s", date))
-		}
-	}
-
-	if len(queryParts) == 0 {
-		return analType.String()
-	}
-	return fmt.Sprintf("%s?%s", analType.String(), strings.Join(queryParts, "&"))
-}
-
-func EncodeAnalysisTypeRequest(analType paradigm.AnalysisType, options map[string]string) string {
-	return encodeAnalysisTypeRequest(analType, options)
-}
-
-func sortTasksByStartTimeDesc(tasks []*paradigm.Task) {
-	sort.SliceStable(tasks, func(i, j int) bool {
-		return tasks[i].StartTime.After(tasks[j].StartTime)
-	})
-}
-
-func displayTaskID(task *paradigm.Task) string {
-	if task == nil {
-		return ""
-	}
-	if task.PlatformTaskID != nil && strings.TrimSpace(*task.PlatformTaskID) != "" {
-		return strings.TrimSpace(*task.PlatformTaskID)
-	}
-	return task.Sign
-}
-
-func extractTaskStockCode(task *paradigm.Task) string {
-	if task == nil {
-		return ""
-	}
-	if code := strings.TrimSpace(stringifyTaskParam(task.Params["stockCode"])); code != "" {
-		return code
-	}
-	if code := strings.TrimSpace(stringifyTaskParam(task.Params["stockId"])); code != "" {
-		return code
-	}
-	parts := strings.Split(task.Sign, "-")
-	if len(parts) > 0 {
-		return parts[len(parts)-1]
-	}
-	return ""
-}
-
-func extractTaskStockID(task *paradigm.Task) string {
-	if task == nil {
-		return ""
-	}
-	if stockID := strings.TrimSpace(stringifyTaskParam(task.Params["stockId"])); stockID != "" {
-		return stockID
-	}
-	return extractTaskStockCode(task)
-}
-
-func extractTaskStockName(task *paradigm.Task) string {
-	if task == nil {
-		return ""
-	}
-	return abm.ResolveStockDisplayName(
-		extractTaskStockCode(task),
-		stringifyTaskParam(task.Params["stockName"]),
-	)
-}
-
-func ExtractTaskStockName(task *paradigm.Task) string {
-	return extractTaskStockName(task)
-}
-
-func stringifyTaskParam(value interface{}) string {
-	if value == nil {
-		return ""
-	}
-	return fmt.Sprintf("%v", value)
-}
-
-func matchTaskStock(task *paradigm.Task, stockID string) bool {
-	target := strings.TrimSpace(strings.ToLower(stockID))
-	if target == "" {
-		return false
-	}
-	return strings.EqualFold(extractTaskStockID(task), target) || strings.EqualFold(extractTaskStockCode(task), target)
 }
 
 func (e *HttpEngine) resolveAnalyticsNodeID(task *paradigm.Task) (int, error) {
@@ -670,4 +350,24 @@ func (e *HttpEngine) resolveAnalyticsNodeID(task *paradigm.Task) (int, error) {
 	}
 
 	return 0, fmt.Errorf("finished slot node_id not found for task %s", task.Sign)
+}
+
+func AttachCrashRiskTopRiskListToItems(items []AnalyticsQueryItem) []AnalyticsQueryItem {
+	return abm.AttachCrashRiskTopRiskListToItems(items)
+}
+
+func BuildCrashRiskTopRiskList(items []AnalyticsQueryItem) []map[string]interface{} {
+	return abm.BuildCrashRiskTopRiskList(items)
+}
+
+func EncodeAnalysisTypeRequest(analType paradigm.AnalysisType, options map[string]string) string {
+	return abm.EncodeAnalysisTypeRequest(analType, options)
+}
+
+func ExtractTaskStockName(task *paradigm.Task) string {
+	return abm.ExtractTaskStockName(task)
+}
+
+func stringifyTaskParam(value interface{}) string {
+	return abm.StringifyTaskParam(value)
 }

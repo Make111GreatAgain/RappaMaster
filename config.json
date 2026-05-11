@@ -22,6 +22,7 @@
   "BatchSize": 1,
   "ABMStockDataDir": "/root/rappa/stockdata",
   "ABMStockParamDir": "/root/rappa/stockdata/params",
+  "ABMV2MaxConcurrency": 4,
   "ErasureCodeParamN": 9,
   "ErasureCodeParamK": 6,
   "Database": {
@@ -42,12 +43,84 @@
     "0": {
       "NodeIPAddress": "127.0.0.1",
       "NodeGrpcPort": 1234
+    },
+    "1": {
+      "NodeIPAddress": "127.0.0.1",
+      "NodeGrpcPort": 1236
+    },
+    "2": {
+      "NodeIPAddress": "127.0.0.1",
+      "NodeGrpcPort": 1238
+    },
+    "3": {
+      "NodeIPAddress": "127.0.0.1",
+      "NodeGrpcPort": 1240
+    },
+    "4": {
+      "NodeIPAddress": "127.0.0.1",
+      "NodeGrpcPort": 1242
+    },
+    "5": {
+      "NodeIPAddress": "127.0.0.1",
+      "NodeGrpcPort": 1244
+    },
+    "6": {
+      "NodeIPAddress": "127.0.0.1",
+      "NodeGrpcPort": 1246
+    },
+    "7": {
+      "NodeIPAddress": "127.0.0.1",
+      "NodeGrpcPort": 1248
+    },
+    "8": {
+      "NodeIPAddress": "127.0.0.1",
+      "NodeGrpcPort": 1250
+    },
+    "9": {
+      "NodeIPAddress": "127.0.0.1",
+      "NodeGrpcPort": 1252
     }
   },
   "BHNodeKeyMap": {
     "0": {
-      "spKey": "Z8OGx61BpX1lIZs6VZ9Xz1Obzshql+UOOft5inaxRUbRGaA1dyaXEA9aG2vzB3QS24memge4e5ryiCCjaAEahA==",
-      "blsKey": "s9KQd+2nVcqzfRlEPsxdh56ysOfXoIoJmZGKwItNhg7fkDkC4pw437/V73fdVUV+"
+      "spKey": "UAy/yNG3IW1Jt1/UuQ7WxN88w5/0uuibKRr5hdTegh+sPk1gi0Yq/SM3UjtEhkgr37osMb44rsFp6MG6fvxieQ==",
+      "blsKey": "jYxtGRp0AK30/GDpmaywSaWpvHWJxcYIrHJ4ry6rSenKBjfoJSmtkwt5snD2hDRh"
+    },
+    "1": {
+      "spKey": "PhrEg3qQHyAiKCqOT4LcUlplIX5oYj6KjrSdoRyxHkHRUDIp1P0RS5SOihvdyaNhfAyPIQVMcKk+RrEmBW5KKQ==",
+      "blsKey": "t09jkUglrtAL4APfEf2BO6lNF0MVIsqV3It17rqHGT5b8MlJxOJAWgBsPkhEK2dG"
+    },
+    "2": {
+      "spKey": "F312DacNLMDBv+WaY+E3zjHYiEZ4fuYl9YwR3G0LmZQtxgf6YJ/qYpmf+cliMoJK91aiBskk0IHnYGoWjFEatw==",
+      "blsKey": "rjACSYe0k/c09OJPsYL/vWeRC676x/nfbzjpBQiT6RmrmbTHTHthw8cgPD1PKjwJ"
+    },
+    "3": {
+      "spKey": "rKxRKv/sm4oUyC9Q0KE1LGXUjCs7Ql1DR+LlhYiwmkjgIbR+3Vkies95Knsg6bpXlgSkErb/77t2OPer2HvbOA==",
+      "blsKey": "sntB1hVhQKOeIp5qW/2E42H6E/InwvY721cM4ikVuf6Go7Zr7Of/hAq3c7x+2va/"
+    },
+    "4": {
+      "spKey": "Pnz7QyXTCPgEZVNtP43xwaUrycfh3Cr3l4lhK06PbHC4IfhQ95pRBtsyfq95fOA/r2nTwPKIeIzEEPbhUvvEEw==",
+      "blsKey": "k90aQMjJv74AVrlM2SgP5CsQEXFBX6d0OgzeyTCrk8C7JbMdYJY7cmHO2ymOA8QC"
+    },
+    "5": {
+      "spKey": "os3dNd7ibxGocslVCebWsFreK6JWdWgeVMyysrpQtjclQZzEZ+he1orjrt2+hvZcfUodKEkskTCM0O0HTUXVgw==",
+      "blsKey": "ql0qp+cKhJYLKxAQiIRhCq5QlUxt7AHoifAxeVMA9n+k16k6wSpq2s9en5BFvbeJ"
+    },
+    "6": {
+      "spKey": "elnJVdaOxJ0tvKQTfSCKGxm5/jwfoNV3DSA8MA+lUKEDFUj1qgF2JlwSuKzPhfsFQv8dYyOH64gRY1sF0P8Aqw==",
+      "blsKey": "kmbl0NuZIxtVmYEhlD0OriAnAbB5y8MGrdOB5jBYKc/XGpM0CwIACpTZSz5mwSle"
+    },
+    "7": {
+      "spKey": "TH3lDvw9+m2FB465DTQzu0qz9/cVTauPvSIPy9PenFc9/zZCF3JbUIk4N9WxVO+KAhaBqT0oOPAF30WQbIL8NA==",
+      "blsKey": "tiHnTNQ7a5ITazVtEFa0jUKdPZMPt8n4KRtIN1BWTiEJHbWCeOz+NqBXnTqVjYXL"
+    },
+    "8": {
+      "spKey": "0lLt8Aw02gxk9MQ6a5Ri9JDpk2f2ZZqOwt6ijuLDrYLgW9WMuhZEiEtXRz/Ezed4LMrigErOQ08cQnUgBRTnOQ==",
+      "blsKey": "pXIaFEH36mRFLSRwEZ6zRnVPeUdLGcXCyKgL3E5Oetsz9GsmecoB9MKWfCQyJ0v9"
+    },
+    "9": {
+      "spKey": "ndaep9YVX+W+pg1WEffYKFuixmZsrFm73NY4v1gG10we8CogxU6o2uqAJ/v+X4WZpUIrFo7HiROm/ZW1UbsDvA==",
+      "blsKey": "tI9e5dmoq0339327KWzxfEImYQF5WVxaM0Gde6wnSTdOWhDp55Ty2D9akfvxiRNB"
     }
   }
 }

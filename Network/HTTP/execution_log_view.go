@@ -2,6 +2,7 @@ package HTTP
 
 import (
 	"BHLayer2Node/paradigm"
+	"strings"
 	"time"
 )
 
@@ -10,6 +11,7 @@ type ExecutionLogTaskView struct {
 	TaskName       string                `json:"taskName"`
 	Parameters     string                `json:"parameters"`
 	ExecutionType  string                `json:"executionType"`
+	User           string                `json:"user"`
 	Status         string                `json:"status"`
 	CompletionTime string                `json:"completionTime"`
 	IsScheduled    bool                  `json:"isScheduled"`
@@ -52,6 +54,7 @@ func buildExecutionLogView(task *paradigm.PlatformTask) ExecutionLogTaskView {
 		TaskName:       task.TaskName,
 		Parameters:     task.Parameters,
 		ExecutionType:  task.ExecutionType,
+		User:           task.UserName,
 		Status:         task.Status,
 		CompletionTime: task.CompletionTime,
 		IsScheduled:    task.IsScheduled,
@@ -132,4 +135,19 @@ func slotStatusName(status paradigm.SlotStatus) string {
 	default:
 		return "unknown"
 	}
+}
+
+const scheduledExecutionLogUser = "系统定时"
+
+func executionLogUserName(isScheduled bool, rawTasks []map[string]interface{}) string {
+	if isScheduled {
+		return scheduledExecutionLogUser
+	}
+	for _, raw := range rawTasks {
+		userName := strings.TrimSpace(stringifyTaskParam(raw["userName"]))
+		if userName != "" {
+			return userName
+		}
+	}
+	return ""
 }

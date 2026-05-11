@@ -77,7 +77,8 @@ func BuildV2TaskParamsWithConfig(raw map[string]interface{}, nodeID int32, confi
 	if len(structuralParams) == 0 {
 		structuralParams = map[string]interface{}{}
 	}
-	if tunedParams, ok := LoadStockTunedParams(stockCode, config); ok {
+	tunedParams, hasTunedParams := TunedParamsFromIndex(stockCode)
+	if hasTunedParams {
 		for _, key := range TunableParamKeys {
 			if value, exists := tunedParams[key]; exists {
 				structuralParams[key] = value
@@ -91,6 +92,7 @@ func BuildV2TaskParamsWithConfig(raw map[string]interface{}, nodeID int32, confi
 	}
 	abmCfg["structural_params"] = structuralParams
 	params["abm"] = abmCfg
+	params["hasTunedParams"] = hasTunedParams
 
 	evaluationCfg := mapFromAny(raw["evaluation"])
 	if len(evaluationCfg) == 0 {

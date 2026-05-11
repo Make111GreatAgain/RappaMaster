@@ -1,12 +1,13 @@
-package Monitor
+package test
 
 import (
+	"BHLayer2Node/Monitor"
 	"BHLayer2Node/paradigm"
 	"testing"
 )
 
-func TestSelectLeastLoadedNodeWithReservationsBalancesBatch(t *testing.T) {
-	monitor := newTestMonitor()
+func TestMonitorSelectLeastLoadedNodeWithReservationsBalancesBatch(t *testing.T) {
+	monitor := Monitor.NewMonitor(newMonitorTestChannel())
 	reserved := map[int32]int{}
 	for i := 0; i < 51; i++ {
 		nodeID := monitor.SelectLeastLoadedNodeWithReservations(reserved)
@@ -23,13 +24,14 @@ func TestSelectLeastLoadedNodeWithReservationsBalancesBatch(t *testing.T) {
 	}
 }
 
-func TestAdviceReturnsOnlyIdleNodeForSingleSlot(t *testing.T) {
-	monitor := newTestMonitor()
+func TestMonitorAdviceReturnsOnlyIdleNodeForSingleSlot(t *testing.T) {
+	channel := newMonitorTestChannel()
+	monitor := Monitor.NewMonitor(channel)
+	monitor.Start()
+
 	counts := map[int32]int{}
 	for i := 0; i < 4; i++ {
-		request := paradigm.NewAdviceRequest(1, 1)
-		monitor.advice(request)
-		resp := request.ReceiveResponse()
+		resp := requestMonitorAdvice(channel, paradigm.NewAdviceRequest(1, 1))
 		if len(resp.NodeIDs) != 1 || len(resp.ScheduleSize) != 1 {
 			t.Fatalf("single-slot advice should return exactly one node, got %#v", resp)
 		}
@@ -42,24 +44,8 @@ func TestAdviceReturnsOnlyIdleNodeForSingleSlot(t *testing.T) {
 		}
 	}
 
-	request := paradigm.NewAdviceRequest(1, 1)
-	monitor.advice(request)
-	resp := request.ReceiveResponse()
+	resp := requestMonitorAdvice(channel, paradigm.NewAdviceRequest(1, 1))
 	if len(resp.NodeIDs) != 0 || len(resp.ScheduleSize) != 0 {
 		t.Fatalf("expected no advice when all nodes already have reserved work, got %#v", resp)
 	}
-}
-
-func newTestMonitor() *Monitor {
-	channel := &paradigm.RappaChannel{
-		Config: &paradigm.BHLayer2NodeConfig{
-			BHNodeAddressMap: map[int]*paradigm.BHNodeAddress{
-				0: {NodeIPAddress: "127.0.0.1", NodeGrpcPort: 9000},
-				1: {NodeIPAddress: "127.0.0.1", NodeGrpcPort: 9001},
-				2: {NodeIPAddress: "127.0.0.1", NodeGrpcPort: 9002},
-				3: {NodeIPAddress: "127.0.0.1", NodeGrpcPort: 9003},
-			},
-		},
-	}
-	return NewMonitor(channel)
 }

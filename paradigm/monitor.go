@@ -143,6 +143,7 @@ func NewNodeStatus(nodeID int32, address BHNodeAddress) *NodeStatus {
 type AdviceRequest struct {
 	Size     int32 // 全量的大小
 	SlotSize int32 //指定的大小
+	Model    SupportModelType
 	response chan AdviceResponse
 }
 
@@ -157,6 +158,16 @@ func NewAdviceRequest(size int32, slotSize int32) *AdviceRequest {
 	return &AdviceRequest{
 		SlotSize: slotSize,
 		Size:     size,
+		Model:    CTGAN,
+		response: make(chan AdviceResponse, 1),
+	}
+}
+
+func NewModelAdviceRequest(size int32, slotSize int32, model SupportModelType) *AdviceRequest {
+	return &AdviceRequest{
+		SlotSize: slotSize,
+		Size:     size,
+		Model:    model,
 		response: make(chan AdviceResponse, 1),
 	}
 }

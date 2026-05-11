@@ -4,6 +4,7 @@ import (
 	"BHLayer2Node/Database"
 	"BHLayer2Node/Monitor"
 	"BHLayer2Node/Network/Grpc"
+	"BHLayer2Node/Network/HTTP/abm"
 	"BHLayer2Node/PKI"
 	"BHLayer2Node/paradigm"
 	"fmt"
@@ -44,6 +45,7 @@ func (e *HttpEngine) AccumulateTaskID() {
 
 func (e *HttpEngine) Start() {
 	go e.AccumulateTaskID()
+	abm.StartABMParameterIndexRefresher(e.config.AbmParameters, &e.config)
 	paradigm.Print("INFO", fmt.Sprintf("Http server run on port %s:%d", e.ip, e.port))
 	err := e.r.Run(fmt.Sprintf(":%d", e.port))
 	if err != nil {
@@ -64,6 +66,7 @@ func (e *HttpEngine) Setup(config paradigm.BHLayer2NodeConfig) {
 	}
 	e.r = gin.Default()
 	e.r.Use(cors.Default())
+	abm.InitABMParameterIndex(e.config.AbmParameters, &e.config)
 
 	// 注册url
 	//e.r.POST("/task", e.HandleRequest)

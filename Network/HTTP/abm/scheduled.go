@@ -3,9 +3,6 @@ package abm
 import (
 	"BHLayer2Node/paradigm"
 	"fmt"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -42,32 +39,14 @@ func BuildScheduledV2RawTasks(config *paradigm.BHLayer2NodeConfig) ([]map[string
 }
 
 func listSupportedStockCodes(config *paradigm.BHLayer2NodeConfig) ([]string, error) {
-	paramsDir := StockParamDir(config)
-	dataDir := StockDataDir(config)
-
-	entries, err := os.ReadDir(paramsDir)
-	if err != nil {
-		return nil, err
+	index := CurrentABMParameterIndex()
+	stockCodes := make([]string, 0, index.TunedCount)
+	for _, item := range index.SupportedStockList {
+		meta, ok := index.StockMap[item.StockCode]
+		if ok && meta.SupportSimulation && meta.HasTunedParams {
+			stockCodes = append(stockCodes, item.StockCode)
+		}
 	}
-
-	stockCodes := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		stockCode := NormalizeStockCode(entry.Name())
-		if stockCode == "" {
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(paramsDir, stockCode, "model_params.json")); err != nil {
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(dataDir, stockCode+".csv")); err != nil {
-			continue
-		}
-		stockCodes = append(stockCodes, stockCode)
-	}
-	sort.Strings(stockCodes)
 	return stockCodes, nil
 }
 

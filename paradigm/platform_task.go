@@ -10,6 +10,7 @@ type PlatformTask struct {
 	TaskName       string    `gorm:"type:varchar(256)" json:"taskName"`
 	Parameters     string    `gorm:"type:text" json:"parameters"`
 	ExecutionType  string    `gorm:"type:varchar(128)" json:"executionType"`
+	UserName       string    `gorm:"column:user_name;type:varchar(128)" json:"user"`
 	Status         string    `gorm:"type:varchar(64)" json:"status"`
 	CompletionTime string    `gorm:"type:varchar(128)" json:"completionTime"`
 	IsScheduled    bool      `gorm:"type:tinyint;default:0" json:"isScheduled"`

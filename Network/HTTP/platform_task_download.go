@@ -1,6 +1,7 @@
 package HTTP
 
 import (
+	"BHLayer2Node/Network/HTTP/abm"
 	"BHLayer2Node/paradigm"
 	"archive/zip"
 	"fmt"
@@ -58,7 +59,7 @@ func (e *HttpEngine) HandlePlatformTaskDownload(c *gin.Context) {
 		}
 
 		// 读取数据并写入文件
-		stockCode := extractTaskStockCode(&subTask)
+		stockCode := abm.ExtractTaskStockCode(&subTask)
 		if stockCode == "" {
 			stockCode = subTask.Sign
 		}

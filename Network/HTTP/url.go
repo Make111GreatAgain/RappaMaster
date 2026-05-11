@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,10 +47,11 @@ const (
 	INVESTOR_COMP
 	PERF_COMPARISON
 	PLATFORM_TASK_DOWNLOAD
+	ABM_PARAMETERS_REFRESH
 )
 
 func (e *HttpEngine) SupportUrl() []HttpServiceEnum {
-	return []HttpServiceEnum{INIT_TASK, ORACLE_QUERY, BLOCKCHAIN_QUERY, DATASYNTH_QUERY, COLLECT_TASK, EXECUTION_LOG, EXECUTION_LOG_TASK, CREATE_SIM_TASK, ANALYZED_STOCKS, ABM_PARAMETERS, ORDER_DYNAMICS, PRICE_SYNTH_DOWNLOAD, PRICE_SYNTH, CRASH_RISK, INVESTOR_COMP, PERF_COMPARISON, PLATFORM_TASK_DOWNLOAD}
+	return []HttpServiceEnum{INIT_TASK, ORACLE_QUERY, BLOCKCHAIN_QUERY, DATASYNTH_QUERY, COLLECT_TASK, EXECUTION_LOG, EXECUTION_LOG_TASK, CREATE_SIM_TASK, ANALYZED_STOCKS, ABM_PARAMETERS, ORDER_DYNAMICS, PRICE_SYNTH_DOWNLOAD, PRICE_SYNTH, CRASH_RISK, INVESTOR_COMP, PERF_COMPARISON, PLATFORM_TASK_DOWNLOAD, ABM_PARAMETERS_REFRESH}
 }
 func (e *HttpEngine) HandleGET(c *gin.Context) {
 	var requestBody Query.HttpOracleQueryRequest
@@ -357,6 +359,15 @@ func (e *HttpEngine) GetHttpService(service HttpServiceEnum) (*HttpService, erro
 				var subTasks []paradigm.Task
 				for _, raw := range rawTasks {
 					taskSize := int32(1)
+					stockCode := abm.NormalizeStockCode(stringifyTaskParam(raw["stockCode"]))
+					if !isScheduled && !abm.IsStockSupportedByIndex(stockCode) {
+						c.JSON(http.StatusBadRequest, paradigm.HttpResponse{
+							Message: fmt.Sprintf("ABM_V2 参数错误: stockCode %s is not supported because input csv is missing", stockCode),
+							Code:    "E100019",
+							Data:    false,
+						})
+						return
+					}
 					// ABM_V2 不在创建阶段预分配节点；Scheduler 每轮根据 Monitor 当前负载动态选择节点。
 					// 最终产出节点以 slots 表中 Finished slot 的 node_id 为准，供分析接口定位。
 					taskParams, err := abm.BuildV2TaskParamsWithConfig(raw, -1, &e.config)
@@ -394,6 +405,7 @@ func (e *HttpEngine) GetHttpService(service HttpServiceEnum) (*HttpService, erro
 					TaskName:    "平台任务申报",
 					SubTasks:    subTasks,
 					IsScheduled: isScheduled,
+					UserName:    executionLogUserName(isScheduled, rawTasks),
 					Status:      "running",
 					CreatedAt:   time.Now(),
 				}
@@ -523,16 +535,49 @@ func (e *HttpEngine) GetHttpService(service HttpServiceEnum) (*HttpService, erro
 			Url:    "/simulation/abm_parameters",
 			Method: "GET",
 			Handler: func(c *gin.Context) {
-				// 获取 ABM 模型结构参数：未指定股票时返回通用默认值；指定股票时优先使用该股票已调好的参数。
 				stockCode := strings.TrimSpace(c.Query("stockCode"))
 				if stockCode == "" {
 					stockCode = strings.TrimSpace(c.Query("stockId"))
 				}
-				parameters := abm.BuildParametersResponse(e.config.AbmParameters, stockCode, &e.config)
+				index := abm.CurrentABMParameterIndex()
+				if stockCode != "" {
+					data := abm.BuildABMSingleStockDetail(e.config.AbmParameters, index, stockCode)
+					c.JSON(http.StatusOK, paradigm.HttpResponse{
+						Message: "操作成功",
+						Data:    data,
+						Code:    "S000000",
+					})
+					return
+				}
+				pageNo, _ := strconv.Atoi(strings.TrimSpace(c.DefaultQuery("pageNo", "1")))
+				pageSize, _ := strconv.Atoi(strings.TrimSpace(c.DefaultQuery("pageSize", "50")))
+				keyword := strings.TrimSpace(c.Query("keyword"))
 
 				c.JSON(http.StatusOK, paradigm.HttpResponse{
 					Message: "操作成功",
-					Data:    parameters,
+					Data:    abm.BuildABMParameterListResponse(index, pageNo, pageSize, keyword),
+					Code:    "S000000",
+				})
+			},
+		}
+		return &httpService, nil
+	case ABM_PARAMETERS_REFRESH:
+		httpService := HttpService{
+			Url:    "/internal/simulation/abm_parameters/refresh",
+			Method: "POST",
+			Handler: func(c *gin.Context) {
+				result, err := abm.RefreshABMParameterIndex(e.config.AbmParameters, &e.config)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, paradigm.HttpResponse{
+						Message: "刷新 ABM 参数索引失败: " + err.Error(),
+						Code:    "E100021",
+						Data:    result,
+					})
+					return
+				}
+				c.JSON(http.StatusOK, paradigm.HttpResponse{
+					Message: "操作成功",
+					Data:    result,
 					Code:    "S000000",
 				})
 			},
@@ -608,7 +653,7 @@ func (e *HttpEngine) GetHttpService(service HttpServiceEnum) (*HttpService, erro
 					return
 				}
 
-				data = normalizeInvestorCompositionResponse(data, c.Query("date"), selectedType)
+				data = abm.NormalizeInvestorCompositionResponse(data, c.Query("date"), selectedType)
 				c.JSON(http.StatusOK, paradigm.HttpResponse{Message: "操作成功", Data: data, Code: "S000000"})
 			},
 		}

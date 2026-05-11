@@ -120,10 +120,11 @@ type BHLayer2NodeConfig struct {
 	IsAutoMigrate   bool
 	BatchSize       int
 
-	Database         *DatabaseConfig
-	AbmParameters    map[string]interface{} `json:"-"` // 不直接从 config.json 解析，从独立文件加载
-	ABMStockDataDir  string                 // ABM 真实股票输入数据目录
-	ABMStockParamDir string                 // ABM 离线调参参数目录
+	Database            *DatabaseConfig
+	AbmParameters       map[string]interface{} `json:"-"` // 不直接从 config.json 解析，从独立文件加载
+	ABMStockDataDir     string                 // ABM 真实股票输入数据目录
+	ABMStockParamDir    string                 // ABM 离线调参参数目录
+	ABMV2MaxConcurrency int                    // ABM_V2 全局最大并发子任务数
 }
 
 // DefaultBHLayer2NodeConfig 定义默认的配置值
@@ -174,8 +175,9 @@ var DefaultBHLayer2NodeConfig = BHLayer2NodeConfig{
 		MaxOpenConns: 100,
 		MaxLifetime:  "1h",
 	},
-	ABMStockDataDir:  "/root/rappa/stockdata",
-	ABMStockParamDir: "/root/rappa/stockdata/params",
+	ABMStockDataDir:     "/root/rappa/stockdata",
+	ABMStockParamDir:    "/root/rappa/stockdata/params",
+	ABMV2MaxConcurrency: 4,
 }
 
 //var (

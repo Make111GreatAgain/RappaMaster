@@ -3,12 +3,19 @@ package abm
 import (
 	"BHLayer2Node/paradigm"
 	"encoding/json"
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
+	"time"
 )
+
+const defaultParametersIndexRefreshInterval = time.Hour
 
 var TunableParamKeys = []string{
 	"N_FT",
@@ -31,6 +38,16 @@ var TunableParamKeys = []string{
 	"RHO",
 	"VOLUME",
 	"GAMMA",
+}
+
+var DisplayParamKeys = []string{
+	"N_FT",
+	"S_FT",
+	"N_LMT",
+	"ALPHA_L",
+	"N_SMT",
+	"ALPHA_S",
+	"N_NT",
 }
 
 var intParamKeys = map[string]bool{
@@ -81,17 +98,348 @@ var runtimeParamDefaults = map[string]interface{}{
 	"GAMMA":    10,
 }
 
-var stockCodeRegexp = regexp.MustCompile(`\d{6}`)
+var (
+	stockCodeRegexp          = regexp.MustCompile(`\d{6}`)
+	currentABMParameterIndex atomic.Value
+)
 
 type modelParamsFile struct {
 	StructuralParams map[string]interface{} `json:"structural_params"`
 	CalibratedParams map[string]interface{} `json:"calibrated_params"`
 }
 
+type ParameterType string
+
+const (
+	ParameterTypeInt   ParameterType = "int"
+	ParameterTypeFloat ParameterType = "float"
+)
+
+type ParameterSpec struct {
+	Key     string
+	Label   string
+	Type    ParameterType
+	Default float64
+	Min     *float64
+	Max     *float64
+}
+
+type ParameterResponseItem struct {
+	Key     string      `json:"key"`
+	Label   string      `json:"label"`
+	Type    string      `json:"type"`
+	Default interface{} `json:"default"`
+	Min     interface{} `json:"min,omitempty"`
+	Max     interface{} `json:"max,omitempty"`
+}
+
+type StockSimulationListItem struct {
+	StockCode      string `json:"stockCode"`
+	StockName      string `json:"stockName"`
+	HasTunedParams bool   `json:"hasTunedParams"`
+}
+
+type StockSimulationMeta struct {
+	StockCode              string
+	StockName              string
+	SupportSimulation      bool
+	HasInputCsv            bool
+	HasTunedParams         bool
+	TunedParams            map[string]float64
+	InputCsvPath           string
+	TunedParamPath         string
+	InputCsvLastModified   int64
+	TunedParamLastModified int64
+}
+
+type SupportedStockIndex struct {
+	Version            string
+	LastUpdatedAt      string
+	StockDataDir       string
+	StockParamDir      string
+	ParameterSpecs     map[string]ParameterSpec
+	StockMap           map[string]StockSimulationMeta
+	SupportedStockList []StockSimulationListItem
+	Total              int
+	TunedCount         int
+}
+
+type RefreshABMParameterIndexResult struct {
+	OldVersion string `json:"oldVersion"`
+	NewVersion string `json:"newVersion"`
+	Total      int    `json:"total"`
+	TunedCount int    `json:"tunedCount"`
+}
+
+func InitABMParameterIndex(base map[string]interface{}, config *paradigm.BHLayer2NodeConfig) {
+	start := time.Now()
+	index, err := BuildSupportedStockIndex(base, config)
+	if err != nil {
+		paradigm.Log("ERROR", fmt.Sprintf("AbmParameterIndex initialize failed, use empty index, error=%v", err))
+		index = BuildEmptySupportedStockIndex(base, config)
+	}
+	currentABMParameterIndex.Store(index)
+	paradigm.Log("INFO", fmt.Sprintf("AbmParameterIndex initialized, version=%s, total=%d, tunedCount=%d, costMs=%d",
+		index.Version, index.Total, index.TunedCount, time.Since(start).Milliseconds()))
+}
+
+func StartABMParameterIndexRefresher(base map[string]interface{}, config *paradigm.BHLayer2NodeConfig) {
+	ticker := time.NewTicker(defaultParametersIndexRefreshInterval)
+	go func() {
+		for range ticker.C {
+			if _, err := RefreshABMParameterIndex(base, config); err != nil {
+				// RefreshABMParameterIndex 已记录保留旧版本的日志。
+			}
+		}
+	}()
+}
+
+func CurrentABMParameterIndex() *SupportedStockIndex {
+	if value := currentABMParameterIndex.Load(); value != nil {
+		if index, ok := value.(*SupportedStockIndex); ok && index != nil {
+			return index
+		}
+	}
+	return BuildEmptySupportedStockIndex(nil, nil)
+}
+
+func RefreshABMParameterIndex(base map[string]interface{}, config *paradigm.BHLayer2NodeConfig) (RefreshABMParameterIndexResult, error) {
+	start := time.Now()
+	oldIndex := CurrentABMParameterIndex()
+	newIndex, err := BuildSupportedStockIndex(base, config)
+	if err != nil {
+		paradigm.Log("ERROR", fmt.Sprintf("AbmParameterIndex refresh failed, keep old version=%s, error=%v", oldIndex.Version, err))
+		return RefreshABMParameterIndexResult{OldVersion: oldIndex.Version}, err
+	}
+	currentABMParameterIndex.Store(newIndex)
+	paradigm.Log("INFO", fmt.Sprintf("AbmParameterIndex refreshed, oldVersion=%s, newVersion=%s, total=%d, tunedCount=%d, costMs=%d",
+		oldIndex.Version, newIndex.Version, newIndex.Total, newIndex.TunedCount, time.Since(start).Milliseconds()))
+	return RefreshABMParameterIndexResult{
+		OldVersion: oldIndex.Version,
+		NewVersion: newIndex.Version,
+		Total:      newIndex.Total,
+		TunedCount: newIndex.TunedCount,
+	}, nil
+}
+
+func BuildEmptySupportedStockIndex(base map[string]interface{}, config *paradigm.BHLayer2NodeConfig) *SupportedStockIndex {
+	now := time.Now()
+	return &SupportedStockIndex{
+		Version:            now.Format("20060102_150405"),
+		LastUpdatedAt:      now.Format("2006-01-02 15:04:05"),
+		StockDataDir:       StockDataDir(config),
+		StockParamDir:      StockParamDir(config),
+		ParameterSpecs:     BuildParameterSpecMap(base),
+		StockMap:           map[string]StockSimulationMeta{},
+		SupportedStockList: []StockSimulationListItem{},
+		Total:              0,
+		TunedCount:         0,
+	}
+}
+
+func BuildSupportedStockIndex(base map[string]interface{}, config *paradigm.BHLayer2NodeConfig) (*SupportedStockIndex, error) {
+	now := time.Now()
+	dataDir := StockDataDir(config)
+	paramDir := StockParamDir(config)
+	specs := BuildParameterSpecMap(base)
+
+	entries, err := os.ReadDir(dataDir)
+	if err != nil {
+		return nil, err
+	}
+
+	stockMap := map[string]StockSimulationMeta{}
+	supportedList := make([]StockSimulationListItem, 0, len(entries))
+	tunedCount := 0
+	for _, entry := range entries {
+		if entry.IsDir() || strings.ToLower(filepath.Ext(entry.Name())) != ".csv" {
+			continue
+		}
+		stockCode := NormalizeStockCode(strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name())))
+		if stockCode == "" {
+			continue
+		}
+		if _, exists := stockMap[stockCode]; exists {
+			continue
+		}
+
+		inputPath := filepath.Join(dataDir, entry.Name())
+		inputMTime := int64(0)
+		if info, err := entry.Info(); err == nil {
+			inputMTime = info.ModTime().Unix()
+		}
+
+		paramPath := filepath.Join(paramDir, stockCode, "model_params.json")
+		tunedParams, tunedMTime, hasTuned := loadStockTunedParamsFromPath(stockCode, paramPath, specs)
+		if hasTuned {
+			tunedCount++
+		}
+
+		stockName := ResolveStockDisplayName(stockCode, stockCode)
+		meta := StockSimulationMeta{
+			StockCode:              stockCode,
+			StockName:              stockName,
+			SupportSimulation:      true,
+			HasInputCsv:            true,
+			HasTunedParams:         hasTuned,
+			TunedParams:            tunedParams,
+			InputCsvPath:           inputPath,
+			TunedParamPath:         paramPath,
+			InputCsvLastModified:   inputMTime,
+			TunedParamLastModified: tunedMTime,
+		}
+		stockMap[stockCode] = meta
+		supportedList = append(supportedList, StockSimulationListItem{
+			StockCode:      stockCode,
+			StockName:      stockName,
+			HasTunedParams: hasTuned,
+		})
+	}
+
+	sort.Slice(supportedList, func(i, j int) bool {
+		return supportedList[i].StockCode < supportedList[j].StockCode
+	})
+
+	return &SupportedStockIndex{
+		Version:            now.Format("20060102_150405"),
+		LastUpdatedAt:      now.Format("2006-01-02 15:04:05"),
+		StockDataDir:       dataDir,
+		StockParamDir:      paramDir,
+		ParameterSpecs:     specs,
+		StockMap:           stockMap,
+		SupportedStockList: supportedList,
+		Total:              len(supportedList),
+		TunedCount:         tunedCount,
+	}, nil
+}
+
+func BuildABMParameterListResponse(index *SupportedStockIndex, pageNo int, pageSize int, keyword string) map[string]interface{} {
+	if index == nil {
+		index = CurrentABMParameterIndex()
+	}
+	pageNo, pageSize = normalizePage(pageNo, pageSize)
+	keyword = strings.ToLower(strings.TrimSpace(keyword))
+
+	filtered := make([]StockSimulationListItem, 0, len(index.SupportedStockList))
+	for _, item := range index.SupportedStockList {
+		if keyword == "" ||
+			strings.Contains(strings.ToLower(item.StockCode), keyword) ||
+			strings.Contains(strings.ToLower(item.StockName), keyword) {
+			filtered = append(filtered, item)
+		}
+	}
+
+	total := len(filtered)
+	start := (pageNo - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+
+	return map[string]interface{}{
+		"version":       index.Version,
+		"lastUpdatedAt": index.LastUpdatedAt,
+		"total":         total,
+		"pageNo":        pageNo,
+		"pageSize":      pageSize,
+		"items":         filtered[start:end],
+	}
+}
+
+func BuildABMSingleStockDetail(base map[string]interface{}, index *SupportedStockIndex, stockCode string) map[string]interface{} {
+	rawStockCode := strings.TrimSpace(stockCode)
+	stockCode = NormalizeStockCode(stockCode)
+	if stockCode == "" {
+		stockCode = rawStockCode
+	}
+	if index == nil {
+		index = CurrentABMParameterIndex()
+	}
+	specs := index.ParameterSpecs
+	if len(specs) == 0 {
+		specs = BuildParameterSpecMap(base)
+	}
+
+	meta, exists := index.StockMap[stockCode]
+	if !exists {
+		meta = StockSimulationMeta{
+			StockCode:         stockCode,
+			StockName:         ResolveStockDisplayName(stockCode, stockCode),
+			SupportSimulation: false,
+			HasInputCsv:       false,
+			HasTunedParams:    false,
+			TunedParams:       map[string]float64{},
+		}
+	}
+	if strings.TrimSpace(meta.StockName) == "" {
+		meta.StockName = meta.StockCode
+	}
+
+	parameters := make([]ParameterResponseItem, 0, len(DisplayParamKeys))
+	for _, key := range DisplayParamKeys {
+		spec := specs[key]
+		value := spec.Default
+		if meta.HasTunedParams {
+			if tuned, ok := meta.TunedParams[key]; ok {
+				value = tuned
+			}
+		}
+		parameters = append(parameters, buildParameterResponseItem(spec, value))
+	}
+
+	return map[string]interface{}{
+		"stockCode":         meta.StockCode,
+		"stockName":         meta.StockName,
+		"supportSimulation": meta.SupportSimulation,
+		"hasTunedParams":    meta.HasTunedParams,
+		"parameters":        parameters,
+	}
+}
+
+func IsStockSupportedByIndex(stockCode string) bool {
+	stockCode = NormalizeStockCode(stockCode)
+	if stockCode == "" {
+		return false
+	}
+	index := CurrentABMParameterIndex()
+	meta, ok := index.StockMap[stockCode]
+	return ok && meta.SupportSimulation
+}
+
+func StockMetaFromIndex(stockCode string) (StockSimulationMeta, bool) {
+	stockCode = NormalizeStockCode(stockCode)
+	if stockCode == "" {
+		return StockSimulationMeta{}, false
+	}
+	meta, ok := CurrentABMParameterIndex().StockMap[stockCode]
+	return meta, ok
+}
+
+func TunedParamsFromIndex(stockCode string) (map[string]interface{}, bool) {
+	meta, ok := StockMetaFromIndex(stockCode)
+	if !ok || !meta.HasTunedParams {
+		return map[string]interface{}{}, false
+	}
+	result := make(map[string]interface{}, len(meta.TunedParams))
+	specs := CurrentABMParameterIndex().ParameterSpecs
+	for key, value := range meta.TunedParams {
+		spec := specs[key]
+		if spec.Key == "" {
+			spec = parameterSpecFromDefault(nil, key)
+		}
+		result[key] = formatParameterValue(spec, value)
+	}
+	return result, len(result) > 0
+}
+
+// BuildParametersResponse is kept for existing callers. It no longer reads tuned
+// parameter files directly; tuned values are loaded from the in-memory index.
 func BuildParametersResponse(base map[string]interface{}, stockCode string, config *paradigm.BHLayer2NodeConfig) map[string]interface{} {
 	response := cloneParameters(base)
-	stockCode = NormalizeStockCode(stockCode)
-	tunedParams, hasTunedParams := LoadStockTunedParams(stockCode, config)
+	tunedParams, hasTunedParams := TunedParamsFromIndex(stockCode)
 
 	for _, key := range TunableParamKeys {
 		spec := ensureParamSpec(response, key)
@@ -106,6 +454,194 @@ func BuildParametersResponse(base map[string]interface{}, stockCode string, conf
 	}
 
 	return response
+}
+
+// LoadStockTunedParams is retained for non-request utilities and tests. Request
+// handlers should use the in-memory index instead.
+func LoadStockTunedParams(stockCode string, config *paradigm.BHLayer2NodeConfig) (map[string]interface{}, bool) {
+	stockCode = NormalizeStockCode(stockCode)
+	if stockCode == "" {
+		return map[string]interface{}{}, false
+	}
+	path := filepath.Join(StockParamDir(config), stockCode, "model_params.json")
+	values, _, ok := loadStockTunedParamsFromPath(stockCode, path, BuildParameterSpecMap(nil))
+	if !ok {
+		return map[string]interface{}{}, false
+	}
+	result := make(map[string]interface{}, len(values))
+	specs := BuildParameterSpecMap(nil)
+	for key, value := range values {
+		result[key] = formatParameterValue(specs[key], value)
+	}
+	return result, true
+}
+
+// HasStockInputFile is kept for compatibility. New request paths should call
+// IsStockSupportedByIndex so they do not touch the filesystem.
+func HasStockInputFile(stockCode string, config *paradigm.BHLayer2NodeConfig) bool {
+	return IsStockSupportedByIndex(stockCode)
+}
+
+func BuildParameterSpecMap(base map[string]interface{}) map[string]ParameterSpec {
+	specs := make(map[string]ParameterSpec, len(TunableParamKeys))
+	for _, key := range TunableParamKeys {
+		specs[key] = parameterSpecFromDefault(base, key)
+	}
+	return specs
+}
+
+func parameterSpecFromDefault(base map[string]interface{}, key string) ParameterSpec {
+	rawSpec := map[string]interface{}{}
+	if base != nil {
+		if nested, ok := base[key].(map[string]interface{}); ok {
+			rawSpec = nested
+		}
+	}
+
+	paramType := ParameterTypeFloat
+	if intParamKeys[key] || strings.EqualFold(stringValue(rawSpec["type"]), string(ParameterTypeInt)) {
+		paramType = ParameterTypeInt
+	}
+
+	label := strings.TrimSpace(stringValue(rawSpec["label"]))
+	if label == "" {
+		label = paramLabels[key]
+	}
+
+	defaultValue := 0.0
+	if value, ok := numericValue(rawSpec["default"]); ok {
+		defaultValue = value
+	} else if value, exists := runtimeParamDefaults[key]; exists {
+		if parsed, ok := numericValue(value); ok {
+			defaultValue = parsed
+		}
+	}
+
+	var minValue *float64
+	if value, ok := numericValue(rawSpec["min"]); ok {
+		minValue = &value
+	}
+	var maxValue *float64
+	if value, ok := numericValue(rawSpec["max"]); ok {
+		maxValue = &value
+	}
+
+	return ParameterSpec{
+		Key:     key,
+		Label:   label,
+		Type:    paramType,
+		Default: defaultValue,
+		Min:     minValue,
+		Max:     maxValue,
+	}
+}
+
+func loadStockTunedParamsFromPath(stockCode string, path string, specs map[string]ParameterSpec) (map[string]float64, int64, bool) {
+	info, statErr := os.Stat(path)
+	if statErr != nil {
+		return map[string]float64{}, 0, false
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		paradigm.Log("WARN", fmt.Sprintf("abm tuned parameter parse failed, stockCode=%s, path=%s, error=%v", stockCode, path, err))
+		return map[string]float64{}, info.ModTime().Unix(), false
+	}
+	defer file.Close()
+
+	var payload modelParamsFile
+	decoder := json.NewDecoder(file)
+	decoder.UseNumber()
+	if err := decoder.Decode(&payload); err != nil {
+		paradigm.Log("WARN", fmt.Sprintf("abm tuned parameter parse failed, stockCode=%s, path=%s, error=%v", stockCode, path, err))
+		return map[string]float64{}, info.ModTime().Unix(), false
+	}
+
+	allowed := make(map[string]bool, len(TunableParamKeys))
+	for _, key := range TunableParamKeys {
+		allowed[key] = true
+	}
+
+	result := map[string]float64{}
+	mergeValidatedParamValues(result, payload.StructuralParams, allowed, specs, stockCode)
+	mergeValidatedParamValues(result, payload.CalibratedParams, allowed, specs, stockCode)
+	return result, info.ModTime().Unix(), len(result) > 0
+}
+
+func mergeValidatedParamValues(dst map[string]float64, src map[string]interface{}, allowed map[string]bool, specs map[string]ParameterSpec, stockCode string) {
+	for key, raw := range src {
+		if !allowed[key] {
+			continue
+		}
+		spec := specs[key]
+		if spec.Key == "" {
+			spec = parameterSpecFromDefault(nil, key)
+		}
+		value, ok, reason := validateParamValue(spec, raw)
+		if !ok {
+			paradigm.Log("WARN", fmt.Sprintf("abm tuned parameter invalid, stockCode=%s, key=%s, value=%v, reason=%s, use default", stockCode, key, raw, reason))
+			continue
+		}
+		dst[key] = value
+	}
+}
+
+func validateParamValue(spec ParameterSpec, raw interface{}) (float64, bool, string) {
+	value, ok := numericValue(raw)
+	if !ok {
+		return 0, false, "not numeric"
+	}
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, false, "not finite"
+	}
+	if spec.Type == ParameterTypeInt && math.Trunc(value) != value {
+		return 0, false, "not integer"
+	}
+	if spec.Min != nil && value < *spec.Min {
+		return 0, false, "below min"
+	}
+	if spec.Max != nil && value > *spec.Max {
+		return 0, false, "above max"
+	}
+	return value, true, ""
+}
+
+func buildParameterResponseItem(spec ParameterSpec, value float64) ParameterResponseItem {
+	return ParameterResponseItem{
+		Key:     spec.Key,
+		Label:   spec.Label,
+		Type:    string(spec.Type),
+		Default: formatParameterValue(spec, value),
+		Min:     formatOptionalParameterValue(spec, spec.Min),
+		Max:     formatOptionalParameterValue(spec, spec.Max),
+	}
+}
+
+func formatOptionalParameterValue(spec ParameterSpec, value *float64) interface{} {
+	if value == nil {
+		return nil
+	}
+	return formatParameterValue(spec, *value)
+}
+
+func formatParameterValue(spec ParameterSpec, value float64) interface{} {
+	if spec.Type == ParameterTypeInt {
+		return int(value)
+	}
+	return value
+}
+
+func normalizePage(pageNo int, pageSize int) (int, int) {
+	if pageNo < 1 {
+		pageNo = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 50
+	}
+	if pageSize > 500 {
+		pageSize = 500
+	}
+	return pageNo, pageSize
 }
 
 func cloneParameters(src map[string]interface{}) map[string]interface{} {
@@ -143,60 +679,6 @@ func ensureParamSpec(parameters map[string]interface{}, key string) map[string]i
 	}
 	parameters[key] = spec
 	return spec
-}
-
-func LoadStockTunedParams(stockCode string, config *paradigm.BHLayer2NodeConfig) (map[string]interface{}, bool) {
-	stockCode = NormalizeStockCode(stockCode)
-	if stockCode == "" {
-		return map[string]interface{}{}, false
-	}
-
-	path := filepath.Join(StockParamDir(config), stockCode, "model_params.json")
-	file, err := os.Open(path)
-	if err != nil {
-		return map[string]interface{}{}, false
-	}
-	defer file.Close()
-
-	allowed := make(map[string]bool, len(TunableParamKeys))
-	for _, key := range TunableParamKeys {
-		allowed[key] = true
-	}
-
-	var payload modelParamsFile
-	decoder := json.NewDecoder(file)
-	decoder.UseNumber()
-	if err := decoder.Decode(&payload); err != nil {
-		return map[string]interface{}{}, false
-	}
-
-	result := map[string]interface{}{}
-	mergeParamValues(result, payload.StructuralParams, allowed)
-	mergeParamValues(result, payload.CalibratedParams, allowed)
-	return result, len(result) > 0
-}
-
-func mergeParamValues(dst map[string]interface{}, src map[string]interface{}, allowed map[string]bool) {
-	for key, raw := range src {
-		if !allowed[key] {
-			continue
-		}
-		value, ok := normalizeParamValue(key, raw)
-		if ok {
-			dst[key] = value
-		}
-	}
-}
-
-func normalizeParamValue(key string, raw interface{}) (interface{}, bool) {
-	value, ok := numericValue(raw)
-	if !ok {
-		return nil, false
-	}
-	if intParamKeys[key] {
-		return int(value), true
-	}
-	return value, true
 }
 
 func numericValue(raw interface{}) (float64, bool) {

@@ -9,10 +9,12 @@ import (
 // Monitor 监视节点状态
 // 存储节点的状态信息，并维护一些统计值
 type Monitor struct {
-	channel       *paradigm.RappaChannel
-	nodeStatus    []*paradigm.NodeStatus
-	reservedLoads map[int32]int
-	mu            sync.Mutex
+	channel           *paradigm.RappaChannel
+	nodeStatus        []*paradigm.NodeStatus
+	reservedLoads     map[int32]int
+	reservedABMV2     int
+	pendingSlotModels map[paradigm.SlotHash]paradigm.SupportModelType
+	mu                sync.Mutex
 }
 
 // processHeartbeatResponse 处理节点的心跳回复，其中包含节点最新的磁盘、cpu等信息用于展示
@@ -42,8 +44,12 @@ func (m *Monitor) processOracleInfo() {
 					continue
 				}
 				m.nodeStatus[nodeID].UpdatePendingSlot(slot.SlotID)
+				m.pendingSlotModels[slot.SlotID] = schedule.Model
 				if m.reservedLoads[int32(nodeID)] > 0 {
 					m.reservedLoads[int32(nodeID)]--
+				}
+				if schedule.Model == paradigm.ABM_V2 && m.reservedABMV2 > 0 {
+					m.reservedABMV2--
 				}
 				//paradigm.Log("INFO", fmt.Sprintf("Monitor Update Node %d Status, New Pending Slot: %s", nodeID, slot.SlotID))
 
@@ -54,6 +60,7 @@ func (m *Monitor) processOracleInfo() {
 			nodeID := tx.Nid
 			m.mu.Lock()
 			m.nodeStatus[int(nodeID)].UpdateFinishSlot(tx.SlotHash(), tx.Process, tx.Model)
+			delete(m.pendingSlotModels, tx.SlotHash())
 			m.mu.Unlock()
 			//paradigm.Log("INFO", fmt.Sprintf("Monitor Update Node %d Status, New Finish Slot: %s, process: %d", nodeID, tx.SlotHash(), tx.Process))
 
@@ -89,9 +96,18 @@ func (m *Monitor) processQuery() {
 func (m *Monitor) advice(request *paradigm.AdviceRequest) {
 	if request.Size <= request.SlotSize {
 		m.mu.Lock()
+		if request.Model == paradigm.ABM_V2 && m.abmV2ActiveLocked() >= m.abmV2MaxConcurrency() {
+			m.mu.Unlock()
+			response := paradigm.NewAdviceResponse([]int32{}, []int32{})
+			request.SendResponse(*response)
+			return
+		}
 		nodeID, load := m.selectLeastLoadedNodeAndLoadWithReservationsLocked(m.reservedLoads)
 		if nodeID >= 0 && load == 0 {
 			m.reservedLoads[nodeID]++
+			if request.Model == paradigm.ABM_V2 {
+				m.reservedABMV2++
+			}
 		}
 		m.mu.Unlock()
 		if nodeID < 0 || load > 0 {
@@ -126,6 +142,23 @@ func (m *Monitor) advice(request *paradigm.AdviceRequest) {
 	scheduleSize[0] += request.Size % int32(len(nodeIDs))
 	response := paradigm.NewAdviceResponse(nodeIDs, scheduleSize)
 	request.SendResponse(*response)
+}
+
+func (m *Monitor) abmV2MaxConcurrency() int {
+	if m.channel == nil || m.channel.Config == nil || m.channel.Config.ABMV2MaxConcurrency <= 0 {
+		return 4
+	}
+	return m.channel.Config.ABMV2MaxConcurrency
+}
+
+func (m *Monitor) abmV2ActiveLocked() int {
+	active := m.reservedABMV2
+	for _, model := range m.pendingSlotModels {
+		if model == paradigm.ABM_V2 {
+			active++
+		}
+	}
+	return active
 }
 
 // SelectLeastLoadedNodeExcluding 选择负载最低的节点，并允许排除当前批次中已经预留过的节点。
@@ -219,9 +252,10 @@ func NewMonitor(channel *paradigm.RappaChannel) *Monitor {
 		nodeStatus[nodeID] = paradigm.NewNodeStatus(int32(nodeID), *address)
 	}
 	return &Monitor{
-		channel:       channel,
-		nodeStatus:    nodeStatus,
-		reservedLoads: make(map[int32]int),
+		channel:           channel,
+		nodeStatus:        nodeStatus,
+		reservedLoads:     make(map[int32]int),
+		pendingSlotModels: make(map[paradigm.SlotHash]paradigm.SupportModelType),
 	}
 
 }
