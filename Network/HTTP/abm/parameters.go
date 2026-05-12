@@ -40,16 +40,6 @@ var TunableParamKeys = []string{
 	"GAMMA",
 }
 
-var DisplayParamKeys = []string{
-	"N_FT",
-	"S_FT",
-	"N_LMT",
-	"ALPHA_L",
-	"N_SMT",
-	"ALPHA_S",
-	"N_NT",
-}
-
 var intParamKeys = map[string]bool{
 	"N_FT":   true,
 	"S_FT":   true,
@@ -131,6 +121,7 @@ type ParameterResponseItem struct {
 	Default interface{} `json:"default"`
 	Min     interface{} `json:"min,omitempty"`
 	Max     interface{} `json:"max,omitempty"`
+	Source  string      `json:"source,omitempty"`
 }
 
 type StockSimulationListItem struct {
@@ -378,16 +369,18 @@ func BuildABMSingleStockDetail(base map[string]interface{}, index *SupportedStoc
 		meta.StockName = meta.StockCode
 	}
 
-	parameters := make([]ParameterResponseItem, 0, len(DisplayParamKeys))
-	for _, key := range DisplayParamKeys {
+	parameters := make(map[string]ParameterResponseItem, len(TunableParamKeys))
+	for _, key := range TunableParamKeys {
 		spec := specs[key]
 		value := spec.Default
+		source := "default"
 		if meta.HasTunedParams {
 			if tuned, ok := meta.TunedParams[key]; ok {
 				value = tuned
+				source = "tuned"
 			}
 		}
-		parameters = append(parameters, buildParameterResponseItem(spec, value))
+		parameters[key] = buildParameterResponseItem(spec, value, source)
 	}
 
 	return map[string]interface{}{
@@ -606,7 +599,7 @@ func validateParamValue(spec ParameterSpec, raw interface{}) (float64, bool, str
 	return value, true, ""
 }
 
-func buildParameterResponseItem(spec ParameterSpec, value float64) ParameterResponseItem {
+func buildParameterResponseItem(spec ParameterSpec, value float64, source string) ParameterResponseItem {
 	return ParameterResponseItem{
 		Key:     spec.Key,
 		Label:   spec.Label,
@@ -614,6 +607,7 @@ func buildParameterResponseItem(spec ParameterSpec, value float64) ParameterResp
 		Default: formatParameterValue(spec, value),
 		Min:     formatOptionalParameterValue(spec, spec.Min),
 		Max:     formatOptionalParameterValue(spec, spec.Max),
+		Source:  source,
 	}
 }
 
