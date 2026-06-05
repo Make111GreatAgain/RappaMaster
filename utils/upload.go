@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -9,6 +10,38 @@ import (
 	"net/url"
 	"strings"
 )
+
+func validateUploadResponse(responseText string) error {
+	if responseText == "" {
+		return nil
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal([]byte(responseText), &response); err != nil {
+		return nil
+	}
+
+	codeValue, exists := response["code"]
+	if !exists {
+		return nil
+	}
+
+	var code float64
+	switch v := codeValue.(type) {
+	case float64:
+		code = v
+	case int:
+		code = float64(v)
+	default:
+		return nil
+	}
+	if code == 0 || code == http.StatusOK {
+		return nil
+	}
+
+	message, _ := response["message"].(string)
+	return fmt.Errorf("upload failed: platform code=%v message=%s body=%s", codeValue, message, responseText)
+}
 
 func UploadFile(uploadURL string, params map[string]string, fileBytes []byte, fileName, fieldName string) (string, error) {
 	// 1. 构造完整的 URL（添加查询参数）
@@ -64,6 +97,9 @@ func UploadFile(uploadURL string, params map[string]string, fileBytes []byte, fi
 	responseText := strings.TrimSpace(string(responseBody))
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return responseText, fmt.Errorf("upload failed: status=%s body=%s", resp.Status, responseText)
+	}
+	if err := validateUploadResponse(responseText); err != nil {
+		return responseText, err
 	}
 
 	return responseText, nil

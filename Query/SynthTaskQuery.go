@@ -106,7 +106,7 @@ func (q *UploadTaskQuery) GenerateResponse(data interface{}) paradigm.Response {
 	}
 
 	uploadParams := map[string]string{
-		"dataType":    "用户画像",
+		"dataType":    "marketRisk",
 		"datasetCode": fmt.Sprintf("%d", task.Model),
 		"datasetName": task.GetDataset(),
 		"datasetType": datasetType,
