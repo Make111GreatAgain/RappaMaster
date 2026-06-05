@@ -234,7 +234,7 @@ func BuildSupportedStockIndex(base map[string]interface{}, config *paradigm.BHLa
 	paramDir := StockParamDir(config)
 	specs := BuildParameterSpecMap(base)
 
-	entries, err := os.ReadDir(dataDir)
+	entries, err := os.ReadDir(paramDir)
 	if err != nil {
 		return nil, err
 	}
@@ -243,10 +243,10 @@ func BuildSupportedStockIndex(base map[string]interface{}, config *paradigm.BHLa
 	supportedList := make([]StockSimulationListItem, 0, len(entries))
 	tunedCount := 0
 	for _, entry := range entries {
-		if entry.IsDir() || strings.ToLower(filepath.Ext(entry.Name())) != ".csv" {
+		if !entry.IsDir() {
 			continue
 		}
-		stockCode := NormalizeStockCode(strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name())))
+		stockCode := NormalizeStockCode(entry.Name())
 		if stockCode == "" {
 			continue
 		}
@@ -254,16 +254,21 @@ func BuildSupportedStockIndex(base map[string]interface{}, config *paradigm.BHLa
 			continue
 		}
 
-		inputPath := filepath.Join(dataDir, entry.Name())
-		inputMTime := int64(0)
-		if info, err := entry.Info(); err == nil {
-			inputMTime = info.ModTime().Unix()
+		paramPath := filepath.Join(paramDir, entry.Name(), "model_params.json")
+		if _, err := os.Stat(paramPath); err != nil {
+			continue
 		}
-
-		paramPath := filepath.Join(paramDir, stockCode, "model_params.json")
 		tunedParams, tunedMTime, hasTuned := loadStockTunedParamsFromPath(stockCode, paramPath, specs)
 		if hasTuned {
 			tunedCount++
+		}
+
+		inputPath := filepath.Join(dataDir, stockCode+".csv")
+		inputMTime := int64(0)
+		hasInputCsv := false
+		if info, err := os.Stat(inputPath); err == nil && !info.IsDir() {
+			hasInputCsv = true
+			inputMTime = info.ModTime().Unix()
 		}
 
 		stockName := ResolveStockDisplayName(stockCode, stockCode)
@@ -271,7 +276,7 @@ func BuildSupportedStockIndex(base map[string]interface{}, config *paradigm.BHLa
 			StockCode:              stockCode,
 			StockName:              stockName,
 			SupportSimulation:      true,
-			HasInputCsv:            true,
+			HasInputCsv:            hasInputCsv,
 			HasTunedParams:         hasTuned,
 			TunedParams:            tunedParams,
 			InputCsvPath:           inputPath,

@@ -10,26 +10,27 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func TestBuildScheduledABMV2RawTasksUsesSupportedStockIntersection(t *testing.T) {
+func TestBuildScheduledABMV2RawTasksUsesOfflineParamStocks(t *testing.T) {
 	paramsDir := t.TempDir()
 	dataDir := t.TempDir()
 	writeScheduledABMParamFile(t, paramsDir, "600000")
 	writeScheduledABMParamFile(t, paramsDir, "000001")
 	writeScheduledABMParamFile(t, paramsDir, "600016")
-	writeScheduledABMDataFile(t, dataDir, "600000")
-	writeScheduledABMDataFile(t, dataDir, "000001")
 	t.Setenv("ABM_STOCK_PARAM_DIR", paramsDir)
 	t.Setenv("ABM_STOCK_DATA_DIR", dataDir)
+	abm.InitABMParameterIndex(testABMParametersBase(), nil)
+	restore := abm.SetStockDataAvailabilityCheckerForTest(&fakeStockDataChecker{})
+	defer restore()
 
 	tasks, err := abm.BuildScheduledV2RawTasks(nil)
 	if err != nil {
 		t.Fatalf("build scheduled raw tasks: %v", err)
 	}
-	if len(tasks) != 2 {
-		t.Fatalf("expected 2 scheduled tasks, got %d", len(tasks))
+	if len(tasks) != 3 {
+		t.Fatalf("expected 3 scheduled tasks, got %d", len(tasks))
 	}
 
-	if tasks[0]["stockCode"] != "000001" || tasks[1]["stockCode"] != "600000" {
+	if tasks[0]["stockCode"] != "000001" || tasks[1]["stockCode"] != "600000" || tasks[2]["stockCode"] != "600016" {
 		t.Fatalf("scheduled stock codes should be sorted and normalized, got %#v", tasks)
 	}
 	for _, task := range tasks {
@@ -39,6 +40,37 @@ func TestBuildScheduledABMV2RawTasksUsesSupportedStockIntersection(t *testing.T)
 		if _, exists := task["N_FT"]; exists {
 			t.Fatalf("scheduled task should not carry request override params: %#v", task)
 		}
+		if task["dataStartDate"] == "" || task["dataEndDate"] == "" {
+			t.Fatalf("scheduled task should carry validated data window: %#v", task)
+		}
+	}
+}
+
+func TestBuildScheduledABMV2RawTasksSkipsUnavailableStockData(t *testing.T) {
+	paramsDir := t.TempDir()
+	dataDir := t.TempDir()
+	writeScheduledABMParamFile(t, paramsDir, "600000")
+	writeScheduledABMParamFile(t, paramsDir, "600001")
+	t.Setenv("ABM_STOCK_PARAM_DIR", paramsDir)
+	t.Setenv("ABM_STOCK_DATA_DIR", dataDir)
+	abm.InitABMParameterIndex(testABMParametersBase(), nil)
+	restore := abm.SetStockDataAvailabilityCheckerForTest(&fakeStockDataChecker{
+		results: map[string]abm.StockDataAvailabilityResult{
+			"600001": {
+				Available: false,
+				Source:    "dolphindb",
+				Reason:    "no remote rows",
+			},
+		},
+	})
+	defer restore()
+
+	tasks, err := abm.BuildScheduledV2RawTasks(nil)
+	if err != nil {
+		t.Fatalf("build scheduled raw tasks: %v", err)
+	}
+	if len(tasks) != 1 || tasks[0]["stockCode"] != "600000" {
+		t.Fatalf("expected only available stock to be scheduled, got %#v", tasks)
 	}
 }
 
@@ -66,13 +98,5 @@ func writeScheduledABMParamFile(t *testing.T, root string, stockCode string) {
 	content := []byte(`{"structural_params":{"N_FT":30},"calibrated_params":{"K1":1.0}}`)
 	if err := os.WriteFile(filepath.Join(dir, "model_params.json"), content, 0o644); err != nil {
 		t.Fatalf("write model params: %v", err)
-	}
-}
-
-func writeScheduledABMDataFile(t *testing.T, root string, stockCode string) {
-	t.Helper()
-	content := []byte("date,close\n2022-01-04 09:30:00,1.0\n")
-	if err := os.WriteFile(filepath.Join(root, stockCode+".csv"), content, 0o644); err != nil {
-		t.Fatalf("write stock data csv: %v", err)
 	}
 }

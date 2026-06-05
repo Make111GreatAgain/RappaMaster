@@ -120,11 +120,21 @@ type BHLayer2NodeConfig struct {
 	IsAutoMigrate   bool
 	BatchSize       int
 
-	Database            *DatabaseConfig
-	AbmParameters       map[string]interface{} `json:"-"` // 不直接从 config.json 解析，从独立文件加载
-	ABMStockDataDir     string                 // ABM 真实股票输入数据目录
-	ABMStockParamDir    string                 // ABM 离线调参参数目录
-	ABMV2MaxConcurrency int                    // ABM_V2 全局最大并发子任务数
+	Database                      *DatabaseConfig
+	AbmParameters                 map[string]interface{} `json:"-"` // 不直接从 config.json 解析，从独立文件加载
+	ABMStockDataDir               string                 // ABM 真实股票输入数据目录
+	ABMStockParamDir              string                 // ABM 离线调参参数目录
+	ABMV2MaxConcurrency           int                    // ABM_V2 全局最大并发子任务数
+	ABMStockDataSource            string                 // ABM 真实行情数据源：local/dolphindb/auto
+	ABMRemoteDBHost               string                 // ABM 远程行情库地址
+	ABMRemoteDBPort               int                    // ABM 远程行情库端口
+	ABMRemoteDBUser               string                 // ABM 远程行情库用户
+	ABMRemoteDBPassword           string                 // ABM 远程行情库密码
+	ABMRemoteDBName               string                 // ABM 远程行情库 database
+	ABMRemoteTableName            string                 // ABM 远程行情库 table
+	ABMRemoteCheckPython          string                 // ABM 远程行情校验 Python 可执行文件
+	ABMRemoteCheckScript          string                 // ABM 远程行情校验脚本
+	ABMRemoteDefaultEndOffsetDays int                    // 默认查询 T-N 日
 }
 
 // DefaultBHLayer2NodeConfig 定义默认的配置值
@@ -175,9 +185,19 @@ var DefaultBHLayer2NodeConfig = BHLayer2NodeConfig{
 		MaxOpenConns: 100,
 		MaxLifetime:  "1h",
 	},
-	ABMStockDataDir:     "/root/rappa/stockdata",
-	ABMStockParamDir:    "/root/rappa/stockdata/params",
-	ABMV2MaxConcurrency: 4,
+	ABMStockDataDir:               "/root/rappa/stockdata",
+	ABMStockParamDir:              "/root/rappa/stockdata/params",
+	ABMV2MaxConcurrency:           4,
+	ABMStockDataSource:            "auto",
+	ABMRemoteDBHost:               "192.168.198.76",
+	ABMRemoteDBPort:               8904,
+	ABMRemoteDBUser:               "maoshuoyu",
+	ABMRemoteDBPassword:           "Swhy1234!@#$",
+	ABMRemoteDBName:               "dfs://ods_tsdb_d_hash20_csmar",
+	ABMRemoteTableName:            "l1_trdmin1_sh",
+	ABMRemoteCheckPython:          "python3",
+	ABMRemoteCheckScript:          "tools/abm_remote_data_check.py",
+	ABMRemoteDefaultEndOffsetDays: 1,
 }
 
 //var (

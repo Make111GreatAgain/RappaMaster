@@ -371,11 +371,33 @@ func (e *HttpEngine) GetHttpService(service HttpServiceEnum) (*HttpService, erro
 					stockCode := abm.NormalizeStockCode(stringifyTaskParam(raw["stockCode"]))
 					if !isScheduled && !abm.IsStockSupportedByIndex(stockCode) {
 						c.JSON(http.StatusBadRequest, paradigm.HttpResponse{
-							Message: fmt.Sprintf("ABM_V2 参数错误: stockCode %s is not supported because input csv is missing", stockCode),
+							Message: fmt.Sprintf("ABM_V2 参数错误: stockCode %s is not supported because offline params are missing", stockCode),
 							Code:    "E100019",
 							Data:    false,
 						})
 						return
+					}
+					if !isScheduled {
+						availability, window, err := abm.ValidateStockDataAvailable(stockCode, raw, &e.config)
+						if err != nil {
+							c.JSON(http.StatusInternalServerError, paradigm.HttpResponse{
+								Message: fmt.Sprintf("ABM_V2 行情数据校验失败: stockCode %s, error=%v", stockCode, err),
+								Code:    "E100020",
+								Data:    false,
+							})
+							return
+						}
+						if !availability.Available {
+							c.JSON(http.StatusBadRequest, paradigm.HttpResponse{
+								Message: fmt.Sprintf("ABM_V2 参数错误: stockCode %s has no stock data for %s to %s, source=%s, reason=%s",
+									stockCode, window.StartDate, window.EndDate, availability.Source, availability.Reason),
+								Code: "E100021",
+								Data: false,
+							})
+							return
+						}
+						raw["dataStartDate"] = window.StartDate
+						raw["dataEndDate"] = window.EndDate
 					}
 					// ABM_V2 不在创建阶段预分配节点；Scheduler 每轮根据 Monitor 当前负载动态选择节点。
 					// 最终产出节点以 slots 表中 Finished slot 的 node_id 为准，供分析接口定位。
@@ -396,7 +418,7 @@ func (e *HttpEngine) GetHttpService(service HttpServiceEnum) (*HttpService, erro
 						Slot:        1,
 						Model:       paradigm.ABM_V2,
 						Params:      taskParams,
-						Size:        taskSize,
+						Size:        int64(taskSize),
 						Process:     0,
 						OutputType:  paradigm.DATAFRAME,
 						Schedules:   make([]*paradigm.SynthTaskSchedule, 0),

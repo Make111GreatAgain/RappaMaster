@@ -36,6 +36,12 @@ func BuildV2TaskParamsWithConfig(raw map[string]interface{}, nodeID int32, confi
 	params["stockCode"] = stockCode
 	params["stockName"] = stockName
 	params["dataset"] = stockCode
+	window, err := NormalizeABMDataWindow(raw, config)
+	if err != nil {
+		return nil, err
+	}
+	params["dataStartDate"] = window.StartDate
+	params["dataEndDate"] = window.EndDate
 	if nodeID >= 0 {
 		params["assigned_node_id"] = nodeID
 	}
