@@ -33,8 +33,23 @@ func (q *CollectTaskQuery) TaskID() paradigm.TaskHash {
 
 // todo 这里要改，因为ProcessCollect返回值变了
 func (q *UploadTaskQuery) GenerateResponse(data interface{}) paradigm.Response {
-	task := data.(paradigm.Task)
+	var task *paradigm.Task
+	switch t := data.(type) {
+	case *paradigm.Task:
+		task = t
+	case paradigm.Task:
+		task = &t
+	default:
+		return paradigm.NewErrorResponse(paradigm.NewRappaError(paradigm.RuntimeError, fmt.Sprintf("invalid upload task data type: %T", data)))
+	}
+	if task == nil {
+		return paradigm.NewErrorResponse(paradigm.NewRappaError(paradigm.RuntimeError, "upload task is nil"))
+	}
+
 	collector := task.GetCollector()
+	if collector == nil {
+		return paradigm.NewErrorResponse(paradigm.NewRappaError(paradigm.RuntimeError, "upload task collector is nil"))
+	}
 	request := paradigm.HttpCollectRequest{
 		Sign: task.Sign,
 		Size: task.Size,
