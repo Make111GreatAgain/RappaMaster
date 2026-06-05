@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 func UploadFile(uploadURL string, params map[string]string, fileBytes []byte, fileName, fieldName string) error {
@@ -59,8 +60,10 @@ func UploadFile(uploadURL string, params map[string]string, fileBytes []byte, fi
 	}
 	defer resp.Body.Close()
 
-	// 可选：读取响应内容
-	fmt.Println("Response status:", resp.Status)
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("upload failed: status=%s body=%s", resp.Status, strings.TrimSpace(string(responseBody)))
+	}
 
 	return nil
 }

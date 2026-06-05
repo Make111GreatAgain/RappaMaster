@@ -223,6 +223,15 @@ func (o *PersistedOracle) processDBQuery() {
 		case *Query.UploadTaskQuery:
 			item := query.(*Query.UploadTaskQuery)
 			task, err := o.dbService.GetTaskByID(item.TaskID())
+			if err != nil {
+				errorResponse := paradigm.NewErrorResponse(
+					paradigm.NewRappaError(paradigm.RuntimeError,
+						fmt.Sprintf("Failed to query task %s: %v", item.TaskID(), err)))
+				item.SendResponse(errorResponse)
+				paradigm.Error(paradigm.RuntimeError,
+					fmt.Sprintf("Upload task query failed: %v", err))
+				continue
+			}
 			// task.SetCollector(o.collectors[task.Sign])
 			// 从数据库中恢复Collector
 			err = o.dbService.RecoverCollector(task, o.manager)

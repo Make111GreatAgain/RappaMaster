@@ -51,7 +51,7 @@ const (
 )
 
 func (e *HttpEngine) SupportUrl() []HttpServiceEnum {
-	return []HttpServiceEnum{INIT_TASK, ORACLE_QUERY, BLOCKCHAIN_QUERY, DATASYNTH_QUERY, COLLECT_TASK, EXECUTION_LOG, EXECUTION_LOG_TASK, CREATE_SIM_TASK, ANALYZED_STOCKS, ABM_PARAMETERS, ORDER_DYNAMICS, PRICE_SYNTH_DOWNLOAD, PRICE_SYNTH, CRASH_RISK, INVESTOR_COMP, PERF_COMPARISON, PLATFORM_TASK_DOWNLOAD, ABM_PARAMETERS_REFRESH}
+	return []HttpServiceEnum{INIT_TASK, ORACLE_QUERY, BLOCKCHAIN_QUERY, DATASYNTH_QUERY, COLLECT_TASK, UPLOAD_TASK, EXECUTION_LOG, EXECUTION_LOG_TASK, CREATE_SIM_TASK, ANALYZED_STOCKS, ABM_PARAMETERS, ORDER_DYNAMICS, PRICE_SYNTH_DOWNLOAD, PRICE_SYNTH, CRASH_RISK, INVESTOR_COMP, PERF_COMPARISON, PLATFORM_TASK_DOWNLOAD, ABM_PARAMETERS_REFRESH}
 }
 func (e *HttpEngine) HandleGET(c *gin.Context) {
 	var requestBody Query.HttpOracleQueryRequest
@@ -61,6 +61,15 @@ func (e *HttpEngine) HandleGET(c *gin.Context) {
 		//fmt.Println(query.ToHttpJson())
 		e.channel.QueryChannel <- query
 		r := query.ReceiveResponse() // 这里会阻塞
+
+		if r.Error() != "" {
+			c.JSON(http.StatusInternalServerError, paradigm.HttpResponse{
+				Message: r.Error(),
+				Code:    "ERROR",
+				Data:    r.ToHttpJson(),
+			})
+			return
+		}
 
 		response := paradigm.HttpResponse{
 			Message: fmt.Sprintf("Query Data Successfully, query type: %s, query: %v", requestBody.Query, requestBody.Data),

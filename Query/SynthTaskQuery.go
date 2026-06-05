@@ -74,6 +74,20 @@ func (q *UploadTaskQuery) GenerateResponse(data interface{}) paradigm.Response {
 	default:
 		break
 	}
+
+	purpose := q.request.Purpose
+	if purpose == "" {
+		purpose = task.Name
+	}
+	description := q.request.Description
+	if description == "" {
+		description = "说明:测试数据"
+	}
+	createBy := q.request.CreateBy
+	if createBy == "" {
+		createBy = "User02"
+	}
+
 	//发送上传请求
 	err = utils.UploadFile("http://oneplatbank.i2soft.cn:19195/jeecaboot/datap/uploadFile", map[string]string{
 		"dataType":    "用户画像",
@@ -81,9 +95,9 @@ func (q *UploadTaskQuery) GenerateResponse(data interface{}) paradigm.Response {
 		"datasetName": task.GetDataset(),
 		"datasetType": datasetType,
 		"dataCnt":     strconv.Itoa(int(task.Size)),
-		"purpose":     task.Name,
-		"description": "说明:测试数据",
-		"createBy":    "User02",
+		"purpose":     purpose,
+		"description": description,
+		"createBy":    createBy,
 	}, fileByte, generateFileName(), "file")
 	if err != nil {
 		return paradigm.NewErrorResponse(paradigm.NewRappaError(paradigm.NetworkError, err.Error()))
