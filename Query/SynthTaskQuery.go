@@ -118,7 +118,7 @@ func (q *UploadTaskQuery) GenerateResponse(data interface{}) paradigm.Response {
 	result["uploadParams"] = uploadParams
 
 	//发送上传请求
-	uploadURL := "http://oneplatbank.i2soft.cn:19195/jeecaboot/datap/uploadFile"
+	uploadURL := "http://oneplatbank.i2soft.cn:19195/jeecgboot/datap/uploadFile"
 	paradigm.Print("UPLOAD", fmt.Sprintf("External upload request url=%s params=%v filename=%s fileSize=%d", uploadURL, uploadParams, fileName, len(fileByte)))
 	uploadResponse, err := utils.UploadFile(uploadURL, uploadParams, fileByte, fileName, "file")
 	if err != nil {
