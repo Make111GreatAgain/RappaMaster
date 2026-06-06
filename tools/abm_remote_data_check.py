@@ -41,7 +41,8 @@ def main() -> int:
 inputDBName = "{args.db}"
 inputTBName = "{args.table}"
 quotes = loadTable(inputDBName, inputTBName)
-select count(*) as rows from quotes where Symbol={symbol} and TradingDate between {start}:{end}
+d = select top 1 Symbol from quotes where Symbol={symbol} and TradingDate between {start}:{end}
+select count(*) as rows from d
 """
     try:
         session = ddb.session()
