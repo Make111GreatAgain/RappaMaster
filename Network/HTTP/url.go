@@ -344,7 +344,16 @@ func (e *HttpEngine) GetHttpService(service HttpServiceEnum) (*HttpService, erro
 				var rawTasks []map[string]interface{}
 				if isScheduled {
 					var err error
-					rawTasks, err = abm.BuildScheduledV2RawTasks(&e.config)
+					scheduledOptions, err := abm.BuildScheduledV2OptionsFromQuery(c)
+					if err != nil {
+						c.JSON(http.StatusBadRequest, paradigm.HttpResponse{
+							Message: "定时任务参数错误: " + err.Error(),
+							Code:    "E100017",
+							Data:    false,
+						})
+						return
+					}
+					rawTasks, err = abm.BuildScheduledV2RawTasks(&e.config, scheduledOptions)
 					if err != nil {
 						c.JSON(http.StatusInternalServerError, paradigm.HttpResponse{
 							Message: "定时任务参数构造失败: " + err.Error(),

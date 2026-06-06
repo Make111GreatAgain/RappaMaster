@@ -5,6 +5,7 @@ logs
 *.svg
 *.temp
 *.csv
+!resources/abm_universe/**/*.csv
 *.log
 ChainUpper/*.crt
 ChainUpper/*.key

@@ -117,6 +117,7 @@ cat <<EOL >$config_path
   "ABMRemoteCheckPython": "python3",
   "ABMRemoteCheckScript": "tools/abm_remote_data_check.py",
   "ABMRemoteDefaultEndOffsetDays": 1,
+  "ABMUniverseSnapshotRoot": "resources/abm_universe",
   "ErasureCodeParamN": 9,
   "ErasureCodeParamK": 6,
   "Database": {

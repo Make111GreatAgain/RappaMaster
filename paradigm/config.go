@@ -135,6 +135,7 @@ type BHLayer2NodeConfig struct {
 	ABMRemoteCheckPython          string                 // ABM 远程行情校验 Python 可执行文件
 	ABMRemoteCheckScript          string                 // ABM 远程行情校验脚本
 	ABMRemoteDefaultEndOffsetDays int                    // 默认查询 T-N 日
+	ABMUniverseSnapshotRoot       string                 // ABM 指数成分股季度快照目录
 }
 
 // DefaultBHLayer2NodeConfig 定义默认的配置值
@@ -198,6 +199,7 @@ var DefaultBHLayer2NodeConfig = BHLayer2NodeConfig{
 	ABMRemoteCheckPython:          "python3",
 	ABMRemoteCheckScript:          "tools/abm_remote_data_check.py",
 	ABMRemoteDefaultEndOffsetDays: 1,
+	ABMUniverseSnapshotRoot:       "resources/abm_universe",
 }
 
 //var (
