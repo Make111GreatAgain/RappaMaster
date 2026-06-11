@@ -12,6 +12,12 @@ import (
 
 var ErrAnalyticsNotFound = errors.New("analytics result not found")
 
+var hiddenPerformanceMetrics = map[string]bool{
+	"Kurtosis (峰度)": true,
+	"Skewness (偏度)": true,
+	"Volume Mean":   true,
+}
+
 type AnalyticsQueryItem struct {
 	Task      *paradigm.Task
 	TaskID    string
@@ -21,6 +27,57 @@ type AnalyticsQueryItem struct {
 	StockName string
 	Date      string
 	Data      interface{}
+}
+
+func HideUnstablePerformanceMetrics(data interface{}) interface{} {
+	switch payload := data.(type) {
+	case map[string]interface{}:
+		if tableData, ok := payload["tableData"]; ok {
+			payload["tableData"] = filterPerformanceTableData(tableData)
+		}
+		if nested, ok := payload["data"]; ok {
+			payload["data"] = HideUnstablePerformanceMetrics(nested)
+		}
+		return payload
+	case []map[string]interface{}:
+		for index := range payload {
+			payload[index] = HideUnstablePerformanceMetrics(payload[index]).(map[string]interface{})
+		}
+		return payload
+	case []interface{}:
+		for index := range payload {
+			payload[index] = HideUnstablePerformanceMetrics(payload[index])
+		}
+		return payload
+	default:
+		return data
+	}
+}
+
+func filterPerformanceTableData(tableData interface{}) interface{} {
+	switch rows := tableData.(type) {
+	case []interface{}:
+		filtered := make([]interface{}, 0, len(rows))
+		for _, raw := range rows {
+			row, ok := raw.(map[string]interface{})
+			if ok && hiddenPerformanceMetrics[strings.TrimSpace(fmt.Sprintf("%v", row["indicator"]))] {
+				continue
+			}
+			filtered = append(filtered, raw)
+		}
+		return filtered
+	case []map[string]interface{}:
+		filtered := make([]map[string]interface{}, 0, len(rows))
+		for _, row := range rows {
+			if hiddenPerformanceMetrics[strings.TrimSpace(fmt.Sprintf("%v", row["indicator"]))] {
+				continue
+			}
+			filtered = append(filtered, row)
+		}
+		return filtered
+	default:
+		return tableData
+	}
 }
 
 func NormalizeInvestorCompositionResponse(data interface{}, selectedDate, selectedType string) interface{} {
