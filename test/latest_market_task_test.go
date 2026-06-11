@@ -90,6 +90,23 @@ func TestBuildLatestMarketTaskResponseReturnsNilWithoutValidStock(t *testing.T) 
 	}
 }
 
+func TestBuildDefaultMarketTaskResponse(t *testing.T) {
+	view := HTTP.BuildDefaultMarketTaskResponse()
+
+	if view["taskId"] != "TSK-1001" {
+		t.Fatalf("expected default taskId TSK-1001, got %#v", view["taskId"])
+	}
+	if view["stockCode"] != "600028" || view["stockId"] != "600028" {
+		t.Fatalf("expected default stock 600028, got %#v", view)
+	}
+	if view["label"] != "600028 中国石化" {
+		t.Fatalf("expected resolved stock label, got %#v", view["label"])
+	}
+	if view["taskName"] != "平台任务申报" {
+		t.Fatalf("expected default task name, got %#v", view["taskName"])
+	}
+}
+
 func newLatestMarketSubTask(platformTaskID, stockCode, stockName string, status paradigm.SlotStatus, model paradigm.SupportModelType) paradigm.Task {
 	return paradigm.Task{
 		Sign:  "SubTask-" + platformTaskID + "-" + stockCode,

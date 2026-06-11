@@ -50,10 +50,11 @@ const (
 	PLATFORM_TASK_DOWNLOAD
 	ABM_PARAMETERS_REFRESH
 	LATEST_MARKET_TASK
+	DEFAULT_MARKET_TASK
 )
 
 func (e *HttpEngine) SupportUrl() []HttpServiceEnum {
-	return []HttpServiceEnum{INIT_TASK, ORACLE_QUERY, BLOCKCHAIN_QUERY, DATASYNTH_QUERY, COLLECT_TASK, UPLOAD_TASK, EXECUTION_LOG, EXECUTION_LOG_TASK, CREATE_SIM_TASK, ANALYZED_STOCKS, LATEST_MARKET_TASK, ABM_PARAMETERS, ORDER_DYNAMICS, PRICE_SYNTH_DOWNLOAD, PRICE_SYNTH, CRASH_RISK, INVESTOR_COMP, PERF_COMPARISON, PLATFORM_TASK_DOWNLOAD, ABM_PARAMETERS_REFRESH}
+	return []HttpServiceEnum{INIT_TASK, ORACLE_QUERY, BLOCKCHAIN_QUERY, DATASYNTH_QUERY, COLLECT_TASK, UPLOAD_TASK, EXECUTION_LOG, EXECUTION_LOG_TASK, CREATE_SIM_TASK, ANALYZED_STOCKS, LATEST_MARKET_TASK, DEFAULT_MARKET_TASK, ABM_PARAMETERS, ORDER_DYNAMICS, PRICE_SYNTH_DOWNLOAD, PRICE_SYNTH, CRASH_RISK, INVESTOR_COMP, PERF_COMPARISON, PLATFORM_TASK_DOWNLOAD, ABM_PARAMETERS_REFRESH}
 }
 func (e *HttpEngine) HandleGET(c *gin.Context) {
 	var requestBody Query.HttpOracleQueryRequest
@@ -217,6 +218,20 @@ func BuildLatestMarketTaskResponse(platformTask *paradigm.PlatformTask) map[stri
 		"taskId":    platformTask.ID,
 		"taskName":  taskName,
 		"date":      selected.StartTime.Format("2006-01-02"),
+	}
+}
+
+func BuildDefaultMarketTaskResponse() map[string]interface{} {
+	stockCode := "600028"
+	stockName := abm.ResolveStockDisplayName(stockCode, stockCode)
+	return map[string]interface{}{
+		"stockId":   stockCode,
+		"stockCode": stockCode,
+		"stockName": stockName,
+		"label":     fmt.Sprintf("%v %v", stockCode, stockName),
+		"taskId":    "TSK-1001",
+		"taskName":  "平台任务申报",
+		"date":      "2026-05-14",
 	}
 }
 
@@ -622,6 +637,19 @@ func (e *HttpEngine) GetHttpService(service HttpServiceEnum) (*HttpService, erro
 				c.JSON(http.StatusOK, paradigm.HttpResponse{
 					Message: "操作成功",
 					Data:    BuildLatestMarketTaskResponse(task),
+					Code:    "S000000",
+				})
+			},
+		}
+		return &httpService, nil
+	case DEFAULT_MARKET_TASK:
+		httpService := HttpService{
+			Url:    "/market/default_task",
+			Method: "GET",
+			Handler: func(c *gin.Context) {
+				c.JSON(http.StatusOK, paradigm.HttpResponse{
+					Message: "操作成功",
+					Data:    BuildDefaultMarketTaskResponse(),
 					Code:    "S000000",
 				})
 			},
