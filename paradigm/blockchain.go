@@ -4,8 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"time"
-
-	"github.com/FISCO-BCOS/go-sdk/v3/types"
 )
 
 type BlockInfo struct {
@@ -65,6 +63,19 @@ type TransactionInfo struct {
 	// TODO
 }
 
+type Receipt struct {
+	TransactionHash string   `json:"transactionHash"`
+	BlockNumber     int64    `json:"blockNumber"`
+	To              string   `json:"to"`
+	ReceiptProof    []string `json:"receiptProof"`
+}
+
+type Block struct {
+	Hash         string `json:"hash"`
+	Timestamp    uint64 `json:"timestamp"`
+	ReceiptsRoot string `json:"receiptsRoot"`
+}
+
 func NewMockerTransactionInfo() TransactionInfo {
 	return TransactionInfo{
 		TxHash:       "",
@@ -103,7 +114,7 @@ func sha256Hash(data string) string {
 }
 
 // 计算 Merkle Root
-func CalculateMerkleRoot(receipt *types.Receipt) string {
+func CalculateMerkleRoot(receipt *Receipt) string {
 	if len(receipt.ReceiptProof) == 0 {
 		return "" // 没有回执时返回空 Merkle Root
 	}
@@ -133,7 +144,7 @@ func CalculateMerkleRoot(receipt *types.Receipt) string {
 }
 
 // 验证 Merkle Root
-func VerifyMerkleRoot(receipt *types.Receipt, block *types.Block) bool {
+func VerifyMerkleRoot(receipt *Receipt, block *Block) bool {
 	// LogWriter.Log("DBEUG", fmt.Sprintf("verify receipt:%s", receipt))
 	// LogWriter.Log("DBEUG", fmt.Sprintf("verify block:%+v", block))
 	calculatedRoot := CalculateMerkleRoot(receipt)

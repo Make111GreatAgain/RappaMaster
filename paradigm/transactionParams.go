@@ -5,8 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-
-	"github.com/FISCO-BCOS/go-sdk/v3/types"
 )
 
 type PackedParams interface {
@@ -15,7 +13,7 @@ type PackedParams interface {
 	ParamsLen() int
 	IsEmpty() bool
 	ParamsToKVPairs() ([][32]byte, [][32]byte) // batch setItems
-	BuildDevTransactions(receipts []*types.Receipt, blockHash string) []*PackedTransaction
+	BuildDevTransactions(receipts []*Receipt, blockHash string) []*PackedTransaction
 }
 
 // TODO 这里每多一个交易类型就要加上对应的参数
@@ -89,7 +87,7 @@ func (p *InitTaskTransactionParams) ParamsToKVPairs() ([][32]byte, [][32]byte) {
 	}
 	return keys, values
 }
-func (p *InitTaskTransactionParams) BuildDevTransactions(receipts []*types.Receipt, blockHash string) []*PackedTransaction {
+func (p *InitTaskTransactionParams) BuildDevTransactions(receipts []*Receipt, blockHash string) []*PackedTransaction {
 	receipt := receipts[0]
 	result := make([]*PackedTransaction, 0)
 	for _, tx := range p.txs {
@@ -173,7 +171,7 @@ func (p *TaskProcessTransactionParams) ParamsToKVPairs() ([][32]byte, [][32]byte
 	return keys, values
 }
 
-func (p *TaskProcessTransactionParams) BuildDevTransactions(receipts []*types.Receipt, blockHash string) []*PackedTransaction {
+func (p *TaskProcessTransactionParams) BuildDevTransactions(receipts []*Receipt, blockHash string) []*PackedTransaction {
 	// todo 这里暂时先为多个receipt做好准备
 	// 要判断receipt和transaction长度 todo
 
@@ -275,7 +273,7 @@ func (p *EpochRecordTransactionParams) ParamsToKVPairs() ([][32]byte, [][32]byte
 	}
 	return keys, values
 }
-func (p *EpochRecordTransactionParams) BuildDevTransactions(receipts []*types.Receipt, blockHash string) []*PackedTransaction {
+func (p *EpochRecordTransactionParams) BuildDevTransactions(receipts []*Receipt, blockHash string) []*PackedTransaction {
 	receipt := receipts[0]
 	result := make([]*PackedTransaction, 0)
 	for _, tx := range p.txs {

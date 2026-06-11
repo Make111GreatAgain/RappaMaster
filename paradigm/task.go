@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/FISCO-BCOS/go-sdk/v3/types"
 )
 
 // Task 描述一个合成任务
@@ -21,7 +19,7 @@ import (
 //	Schedules   []*SynthTaskSchedule // 该任务的所有的调度
 //	ScheduleMap map[ScheduleHash]int // 为了防止乱序
 //	TxID        int
-//	TxReceipt   *types.Receipt
+//	TxReceipt   *Receipt
 //	// TxBlock     *types.Block
 //	TxBlockHash string
 //	// 以下是测试字段
@@ -47,7 +45,7 @@ type Task struct {
 	ScheduleMap    map[ScheduleHash]int   `gorm:"type:json;serializer:json"`
 	TID            int64                  `gorm:"not null"`
 	TxHash         string                 `gorm:"-"`
-	TxReceipt      *types.Receipt         `gorm:"-"`
+	TxReceipt      *Receipt               `gorm:"-"`
 	TxBlockHash    string                 `gorm:"-"`
 	HasbeenCollect bool                   `gorm:"-"`
 	// 这里本来就有时间

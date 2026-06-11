@@ -4,8 +4,6 @@ import (
 	"fmt"
 
 	"time"
-
-	"github.com/FISCO-BCOS/go-sdk/v3/types"
 )
 
 // =============== 以下是Reference部分==============
@@ -21,7 +19,7 @@ const (
 // DevReference 指代一个txMap得到的结果
 //type DevReference struct {
 //	TxHash      string
-//	TxReceipt   types.Receipt // 以上是交易信息
+//	TxReceipt   Receipt // 以上是交易信息
 //	TxBlockHash string
 //	Rf          RFType // 类型
 //	// 如果是InitTask，那么就是一个交易->TaskID，没有额外信息
@@ -37,7 +35,7 @@ const (
 //	type DevReference struct {
 //		TID         int64         `gorm:"primaryKey;autoIncrement"`
 //		TxHash      string        `gorm:"type:char(66)"`
-//		TxReceipt   types.Receipt `gorm:"type:json;serializer:json"` // JSON 类型需要数据库支持
+//		TxReceipt   Receipt `gorm:"type:json;serializer:json"` // JSON 类型需要数据库支持
 //		TxBlockHash string        `gorm:"not null;type:char(66)"`
 //		Rf          RFType        `gorm:"not null;type:tinyint"` // 枚举存储为整数类型
 //		TaskID      TaskHash      `gorm:"type:varchar(255)"`     // 假设 TaskHash 是字符串类型
@@ -45,21 +43,21 @@ const (
 //		UpchainTime time.Time     `gorm:"not null;type:datetime"`
 //	}
 type DevReference struct {
-	TID         int64         `gorm:"primaryKey;autoIncrement"`
-	TxHash      string        `gorm:"type:char(66);Index:idx_tx_hash"` // 添加普通索引
-	TxReceipt   types.Receipt `gorm:"type:json;serializer:json"`
-	TxBlockHash string        `gorm:"not null;type:char(66);index:idx_block_hash"`   // 添加普通索引
-	Rf          RFType        `gorm:"not null;type:tinyint;index:idx_rf"`            // 添加普通索引
-	TaskID      TaskHash      `gorm:"type:varchar(255);index:idx_task_id"`           // 添加普通索引
-	EpochID     int32         `gorm:"type:int;index:idx_epoch_id"`                   // 添加普通索引
-	UpchainTime time.Time     `gorm:"not null;type:datetime;index:idx_upchain_time"` // 添加普通索引
+	TID         int64     `gorm:"primaryKey;autoIncrement"`
+	TxHash      string    `gorm:"type:char(66);Index:idx_tx_hash"` // 添加普通索引
+	TxReceipt   Receipt   `gorm:"type:json;serializer:json"`
+	TxBlockHash string    `gorm:"not null;type:char(66);index:idx_block_hash"`   // 添加普通索引
+	Rf          RFType    `gorm:"not null;type:tinyint;index:idx_rf"`            // 添加普通索引
+	TaskID      TaskHash  `gorm:"type:varchar(255);index:idx_task_id"`           // 添加普通索引
+	EpochID     int32     `gorm:"type:int;index:idx_epoch_id"`                   // 添加普通索引
+	UpchainTime time.Time `gorm:"not null;type:datetime;index:idx_upchain_time"` // 添加普通索引
 }
 
 // CommitRecord 每个commitRecord对应一个完成finalize的commitSlotItem，对应一笔TaskProcessTransaction
 type CommitRecord struct {
 	*CommitSlotItem
-	TxReceipt *types.Receipt // 交易回执
-	TxID      int64          // 这个交易的id
+	TxReceipt *Receipt // 交易回执
+	TxID      int64    // 这个交易的id
 }
 
 func (r *CommitRecord) Print() {
@@ -102,7 +100,7 @@ type DevEpoch struct {
 	Finalizes   map[SupportModelType][]SlotHash `gorm:"type:json;serializer:json"`
 	Invalids    []*Slot                         `gorm:"type:json;serializer:json"`
 	InitTasks   []*Task                         `gorm:"type:json;serializer:json"`
-	TxReceipt   *types.Receipt                  `gorm:"-"`
+	TxReceipt   *Receipt                        `gorm:"-"`
 	TID         int64                           `gorm:"not null"`
 	TxHash      string                          `gorm:"-"`
 	TxBlockHash string                          `gorm:"-"`

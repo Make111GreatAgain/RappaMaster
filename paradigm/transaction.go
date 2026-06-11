@@ -6,9 +6,6 @@ import (
 	"encoding/json"
 	"math/big"
 	"time"
-
-	"github.com/FISCO-BCOS/go-sdk/v3/types"
-	"github.com/ethereum/go-ethereum/common"
 )
 
 /*** Transaction相关内容 ***/
@@ -131,13 +128,14 @@ func (t *TaskProcessTransaction) StoreParams() ([]interface{}, error) {
 	sign := utils.StringToBytes32(t.Sign)
 	var hash [32]byte
 	if bs, err := hex.DecodeString(t.hash); err == nil {
-		hash = common.BytesToHash(bs)
+		copy(hash[:], bs)
 	} else {
 		hash = utils.StringToBytes32(t.hash)
 	}
 	slot, process, id, epoch :=
 		uint32(t.Slot), uint32(t.Process), uint32(t.Nid), uint32(t.Epoch)
-	commitment := common.BytesToHash(t.Commitment)
+	var commitment [32]byte
+	copy(commitment[:], t.Commitment)
 	var proof []byte
 	switch p := t.Proof.(type) {
 	case nil:
@@ -257,7 +255,7 @@ func (t *EpochRecordTransaction) StoreParams() ([]interface{}, error) {
 type PackedTransaction struct {
 	Tx          Transaction
 	Id          int
-	Receipt     *types.Receipt
+	Receipt     *Receipt
 	BlockHash   string
 	UpchainTime time.Time
 }
@@ -270,12 +268,12 @@ func (t *PackedTransaction) SetUpchainTime(time time.Time) {
 	t.UpchainTime = time
 }
 
-func (t *PackedTransaction) SetBlockInfo(block *types.Block) {
+func (t *PackedTransaction) SetBlockInfo(block *Block) {
 	t.BlockHash = block.Hash
 	t.UpchainTime = TimestampConvert(block.Timestamp)
 }
 
-func NewPackedTransaction(tx Transaction, receipt *types.Receipt, blockHash string) *PackedTransaction {
+func NewPackedTransaction(tx Transaction, receipt *Receipt, blockHash string) *PackedTransaction {
 	return &PackedTransaction{
 		Tx:        tx,
 		Id:        -1,

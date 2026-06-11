@@ -1,11 +1,11 @@
 package main
 
 import (
-	"BHLayer2Node/ChainUpper"
 	"BHLayer2Node/Coordinator"
 	"BHLayer2Node/Database"
 	"BHLayer2Node/Epoch"
 	"BHLayer2Node/Event"
+	"BHLayer2Node/LightChainUpper"
 	"BHLayer2Node/Monitor"
 	"BHLayer2Node/Network/HTTP"
 	"BHLayer2Node/Oracle"
@@ -46,7 +46,7 @@ func main() {
 	oracle := Oracle.NewPersistedOracle(rappaChannel, dbService, pkiManager)
 	monitor := Monitor.NewMonitor(rappaChannel)
 	httpEngine := HTTP.NewHttpEngine(rappaChannel, pkiManager, dbService, monitor)
-	chainUpper, err := ChainUpper.NewChainUpper(rappaChannel, config)
+	chainUpper, err := LightChainUpper.NewLightChainUpper(rappaChannel)
 	if err != nil {
 		paradigm.Error(paradigm.RuntimeError, fmt.Sprintf("Failed to initialize ChainUpper: %v", err))
 	}
