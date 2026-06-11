@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -48,10 +49,11 @@ const (
 	PERF_COMPARISON
 	PLATFORM_TASK_DOWNLOAD
 	ABM_PARAMETERS_REFRESH
+	LATEST_MARKET_TASK
 )
 
 func (e *HttpEngine) SupportUrl() []HttpServiceEnum {
-	return []HttpServiceEnum{INIT_TASK, ORACLE_QUERY, BLOCKCHAIN_QUERY, DATASYNTH_QUERY, COLLECT_TASK, UPLOAD_TASK, EXECUTION_LOG, EXECUTION_LOG_TASK, CREATE_SIM_TASK, ANALYZED_STOCKS, ABM_PARAMETERS, ORDER_DYNAMICS, PRICE_SYNTH_DOWNLOAD, PRICE_SYNTH, CRASH_RISK, INVESTOR_COMP, PERF_COMPARISON, PLATFORM_TASK_DOWNLOAD, ABM_PARAMETERS_REFRESH}
+	return []HttpServiceEnum{INIT_TASK, ORACLE_QUERY, BLOCKCHAIN_QUERY, DATASYNTH_QUERY, COLLECT_TASK, UPLOAD_TASK, EXECUTION_LOG, EXECUTION_LOG_TASK, CREATE_SIM_TASK, ANALYZED_STOCKS, LATEST_MARKET_TASK, ABM_PARAMETERS, ORDER_DYNAMICS, PRICE_SYNTH_DOWNLOAD, PRICE_SYNTH, CRASH_RISK, INVESTOR_COMP, PERF_COMPARISON, PLATFORM_TASK_DOWNLOAD, ABM_PARAMETERS_REFRESH}
 }
 func (e *HttpEngine) HandleGET(c *gin.Context) {
 	var requestBody Query.HttpOracleQueryRequest
@@ -181,6 +183,69 @@ func matchAnalyzedStockFilter(searchType, keyword string, stock map[string]inter
 	default:
 		return true
 	}
+}
+
+func BuildLatestMarketTaskResponse(platformTask *paradigm.PlatformTask) map[string]interface{} {
+	if platformTask == nil {
+		return nil
+	}
+
+	selected := selectDefaultLatestMarketSubTask(platformTask.SubTasks)
+	if selected == nil {
+		return nil
+	}
+
+	stockCode := strings.TrimSpace(abm.ExtractTaskStockCode(selected))
+	if stockCode == "" {
+		return nil
+	}
+	stockID := strings.TrimSpace(abm.ExtractTaskStockID(selected))
+	if stockID == "" {
+		stockID = stockCode
+	}
+	stockName := abm.ExtractTaskStockName(selected)
+	taskName := strings.TrimSpace(platformTask.TaskName)
+	if taskName == "" {
+		taskName = fmt.Sprintf("%v 风险监测", stockName)
+	}
+
+	return map[string]interface{}{
+		"stockId":   stockID,
+		"stockCode": stockCode,
+		"stockName": stockName,
+		"label":     fmt.Sprintf("%v %v", stockCode, stockName),
+		"taskId":    platformTask.ID,
+		"taskName":  taskName,
+		"date":      selected.StartTime.Format("2006-01-02"),
+	}
+}
+
+func selectDefaultLatestMarketSubTask(tasks []paradigm.Task) *paradigm.Task {
+	candidates := make([]*paradigm.Task, 0, len(tasks))
+	for i := range tasks {
+		task := &tasks[i]
+		if task.Status != paradigm.Finished || task.Model != paradigm.ABM_V2 {
+			continue
+		}
+		if strings.TrimSpace(abm.ExtractTaskStockCode(task)) == "" {
+			continue
+		}
+		candidates = append(candidates, task)
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	for _, task := range candidates {
+		if abm.ExtractTaskStockCode(task) == "600000" {
+			return task
+		}
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return abm.ExtractTaskStockCode(candidates[i]) < abm.ExtractTaskStockCode(candidates[j])
+	})
+	return candidates[0]
 }
 
 func (e *HttpEngine) GetHttpService(service HttpServiceEnum) (*HttpService, error) {
@@ -534,6 +599,29 @@ func (e *HttpEngine) GetHttpService(service HttpServiceEnum) (*HttpService, erro
 				c.JSON(http.StatusOK, paradigm.HttpResponse{
 					Message: "操作成功",
 					Data:    result,
+					Code:    "S000000",
+				})
+			},
+		}
+		return &httpService, nil
+	case LATEST_MARKET_TASK:
+		httpService := HttpService{
+			Url:    "/market/latest_task",
+			Method: "GET",
+			Handler: func(c *gin.Context) {
+				task, err := e.dbService.GetLatestFinishedABMPlatformTask()
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, paradigm.HttpResponse{
+						Message: "获取最新分析任务失败",
+						Code:    "E100004",
+						Data:    nil,
+					})
+					return
+				}
+
+				c.JSON(http.StatusOK, paradigm.HttpResponse{
+					Message: "操作成功",
+					Data:    BuildLatestMarketTaskResponse(task),
 					Code:    "S000000",
 				})
 			},

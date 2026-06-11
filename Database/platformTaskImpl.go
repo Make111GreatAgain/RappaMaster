@@ -50,6 +50,25 @@ func (o DatabaseService) GetPlatformTaskByID(id string) (*paradigm.PlatformTask,
 	return &task, nil
 }
 
+// GetLatestFinishedABMPlatformTask returns the newest completed platform task
+// that has at least one completed ABM_V2 stock subtask.
+func (o DatabaseService) GetLatestFinishedABMPlatformTask() (*paradigm.PlatformTask, error) {
+	var task paradigm.PlatformTask
+	err := o.db.Model(&paradigm.PlatformTask{}).
+		Joins("JOIN tasks ON tasks.platform_task_id = platform_tasks.id").
+		Where("platform_tasks.status = ? AND tasks.status = ? AND tasks.model = ?", "finished", paradigm.Finished, paradigm.ABM_V2).
+		Order("platform_tasks.completion_time DESC, platform_tasks.updated_at DESC, platform_tasks.created_at DESC").
+		Preload("SubTasks", "status = ? AND model = ?", paradigm.Finished, paradigm.ABM_V2).
+		First(&task).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &task, nil
+}
+
 // UpdatePlatformTask 更新大任务
 func (o DatabaseService) UpdatePlatformTask(task *paradigm.PlatformTask) error {
 	return o.db.Model(task).Updates(task).Error
