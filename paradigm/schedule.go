@@ -22,9 +22,9 @@ type SynthTaskSchedule struct {
 
 func (s *SynthTaskSchedule) Print() {
 	fmt.Printf("TaskID: %s\n", s.TaskID)
-	fmt.Printf("ScheduleID: %s\n", s.ScheduleID)
+	fmt.Printf("ScheduleID: %d\n", s.ScheduleID)
 	fmt.Printf("Size: %d KB\n", s.Size)
-	fmt.Printf("Model: %s\n", s.Model)
+	fmt.Printf("Model: %s\n", ModelTypeToString(s.Model))
 	fmt.Println("Params:")
 	for key, value := range s.Params {
 		fmt.Printf("  %s: %v\n", key, value)

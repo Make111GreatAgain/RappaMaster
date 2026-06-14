@@ -171,8 +171,8 @@ func checkDolphinDBStockData(req StockDataAvailabilityRequest) (StockDataAvailab
 		"--port", remoteConfigString(config, "port"),
 		"--user", remoteConfigString(config, "user"),
 		"--password", remoteConfigString(config, "password"),
-		"--db", remoteConfigString(config, "db"),
-		"--table", remoteConfigString(config, "table"),
+		"--db", remoteDBForStock(config, req.StockCode),
+		"--table", remoteTableForStock(config, req.StockCode),
 		"--stock-code", req.StockCode,
 		"--start-date", req.Window.StartDate,
 		"--end-date", req.Window.EndDate,
@@ -206,6 +206,76 @@ func checkDolphinDBStockData(req StockDataAvailabilityRequest) (StockDataAvailab
 	}, nil
 }
 
+func remoteDBForStock(config *paradigm.BHLayer2NodeConfig, stockCode string) string {
+	if config == nil {
+		config = &paradigm.DefaultBHLayer2NodeConfig
+	}
+	defaultDB := strings.TrimSpace(config.ABMRemoteDBName)
+	if defaultDB == "" {
+		defaultDB = paradigm.DefaultBHLayer2NodeConfig.ABMRemoteDBName
+	}
+	mode := strings.ToLower(strings.TrimSpace(config.ABMRemoteTableMode))
+	if mode == "" {
+		mode = strings.ToLower(strings.TrimSpace(paradigm.DefaultBHLayer2NodeConfig.ABMRemoteTableMode))
+	}
+	if mode == "single" {
+		return defaultDB
+	}
+
+	code := NormalizeStockCode(stockCode)
+	if strings.HasPrefix(code, "0") || strings.HasPrefix(code, "3") {
+		if db := strings.TrimSpace(config.ABMRemoteSZDBName); db != "" {
+			return db
+		}
+		if db := strings.TrimSpace(paradigm.DefaultBHLayer2NodeConfig.ABMRemoteSZDBName); db != "" {
+			return db
+		}
+		return defaultDB
+	}
+	if db := strings.TrimSpace(config.ABMRemoteSHDBName); db != "" {
+		return db
+	}
+	if db := strings.TrimSpace(paradigm.DefaultBHLayer2NodeConfig.ABMRemoteSHDBName); db != "" {
+		return db
+	}
+	return defaultDB
+}
+
+func remoteTableForStock(config *paradigm.BHLayer2NodeConfig, stockCode string) string {
+	if config == nil {
+		config = &paradigm.DefaultBHLayer2NodeConfig
+	}
+	defaultTable := strings.TrimSpace(config.ABMRemoteTableName)
+	if defaultTable == "" {
+		defaultTable = paradigm.DefaultBHLayer2NodeConfig.ABMRemoteTableName
+	}
+	mode := strings.ToLower(strings.TrimSpace(config.ABMRemoteTableMode))
+	if mode == "" {
+		mode = strings.ToLower(strings.TrimSpace(paradigm.DefaultBHLayer2NodeConfig.ABMRemoteTableMode))
+	}
+	if mode == "single" {
+		return defaultTable
+	}
+
+	code := NormalizeStockCode(stockCode)
+	if strings.HasPrefix(code, "0") || strings.HasPrefix(code, "3") {
+		if table := strings.TrimSpace(config.ABMRemoteSZTableName); table != "" {
+			return table
+		}
+		if table := strings.TrimSpace(paradigm.DefaultBHLayer2NodeConfig.ABMRemoteSZTableName); table != "" {
+			return table
+		}
+		return defaultTable
+	}
+	if table := strings.TrimSpace(config.ABMRemoteSHTableName); table != "" {
+		return table
+	}
+	if table := strings.TrimSpace(paradigm.DefaultBHLayer2NodeConfig.ABMRemoteSHTableName); table != "" {
+		return table
+	}
+	return defaultTable
+}
+
 func remoteConfigString(config *paradigm.BHLayer2NodeConfig, key string) string {
 	if config == nil {
 		config = &paradigm.DefaultBHLayer2NodeConfig
@@ -222,10 +292,6 @@ func remoteConfigString(config *paradigm.BHLayer2NodeConfig, key string) string 
 		return config.ABMRemoteDBUser
 	case "password":
 		return config.ABMRemoteDBPassword
-	case "db":
-		return config.ABMRemoteDBName
-	case "table":
-		return config.ABMRemoteTableName
 	default:
 		return ""
 	}

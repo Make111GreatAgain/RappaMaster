@@ -427,7 +427,7 @@ func (e *HttpEngine) GetHttpService(service HttpServiceEnum) (*HttpService, erro
 						Slot:        1,
 						Model:       paradigm.ABM_V2,
 						Params:      taskParams,
-						Size:        int64(taskSize),
+						Size:        taskSize,
 						Process:     0,
 						OutputType:  paradigm.DATAFRAME,
 						Schedules:   make([]*paradigm.SynthTaskSchedule, 0),

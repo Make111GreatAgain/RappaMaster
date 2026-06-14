@@ -130,8 +130,13 @@ type BHLayer2NodeConfig struct {
 	ABMRemoteDBPort               int                    // ABM 远程行情库端口
 	ABMRemoteDBUser               string                 // ABM 远程行情库用户
 	ABMRemoteDBPassword           string                 // ABM 远程行情库密码
-	ABMRemoteDBName               string                 // ABM 远程行情库 database
-	ABMRemoteTableName            string                 // ABM 远程行情库 table
+	ABMRemoteDBName               string                 // ABM 远程行情库 database，single 模式或兼容旧配置使用
+	ABMRemoteSHDBName             string                 // ABM 沪市远程行情库 database
+	ABMRemoteSZDBName             string                 // ABM 深市远程行情库 database
+	ABMRemoteTableName            string                 // ABM 远程行情库 table，single 模式或兼容旧配置使用
+	ABMRemoteTableMode            string                 // ABM 远程行情库路由模式：single/market
+	ABMRemoteSHTableName          string                 // ABM 沪市远程行情库 table
+	ABMRemoteSZTableName          string                 // ABM 深市远程行情库 table
 	ABMRemoteCheckPython          string                 // ABM 远程行情校验 Python 可执行文件
 	ABMRemoteCheckScript          string                 // ABM 远程行情校验脚本
 	ABMRemoteDefaultEndOffsetDays int                    // 默认查询 T-N 日
@@ -195,7 +200,12 @@ var DefaultBHLayer2NodeConfig = BHLayer2NodeConfig{
 	ABMRemoteDBUser:               "maoshuoyu",
 	ABMRemoteDBPassword:           "Swhy1234!@#$",
 	ABMRemoteDBName:               "dfs://ods_tsdb_d_hash20_csmar",
+	ABMRemoteSHDBName:             "dfs://ods_tsdb_d_hash20_csmar",
+	ABMRemoteSZDBName:             "dfs://ods_tsdb_d_hash10_csmar",
 	ABMRemoteTableName:            "l1_trdmin1_sh",
+	ABMRemoteTableMode:            "market",
+	ABMRemoteSHTableName:          "l1_trdmin1_sh",
+	ABMRemoteSZTableName:          "l1_trdmin1_sz",
 	ABMRemoteCheckPython:          "python3",
 	ABMRemoteCheckScript:          "tools/abm_remote_data_check.py",
 	ABMRemoteDefaultEndOffsetDays: 1,
