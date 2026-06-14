@@ -202,6 +202,9 @@ func (o *PersistedOracle) Start() {
 							sign := ptx.Tx.(*paradigm.TaskProcessTransaction).Signatures[0]
 							ca := ptx.Tx.(*paradigm.TaskProcessTransaction).Signatures[1]
 							o.dbService.SetSlotFinish(commitRecord.SlotHash(), commitRecord.CommitSlotItem, string(sign), string(ca))
+							// 记录单个节点slot的合成速度（只写日志文件）
+							paradigm.Log("SYNTH_SPEED", fmt.Sprintf("[Slot Finish] Task=%s, SlotHash=%s, NodeID=%d, UploadSize=%.2f MB, Speed=%.4f MB/s",
+								commitRecord.Sign, commitRecord.SlotHash(), commitRecord.Nid, float64(commitRecord.UploadSize)/1024.0/1024.0, commitRecord.Speed/1024.0/1024.0))
 							commitRecord.TxID = reference.TID
 							// 使用原子操作增加任务进度并获取更新后的任务
 							task, err := o.dbService.IncrementTaskProcessAndGet(taskSign, commitRecord)
@@ -217,7 +220,16 @@ func (o *PersistedOracle) Start() {
 								//d.channel.FakeCollectSignChannel <- [2]interface{}{task.Sign, task.Process}
 								task.SetCollected()
 								o.dbService.UpdateTask(task)
-								paradigm.Print("INFO", fmt.Sprintf("Task %s finished, expected: %d, processed: %d, speed: %.2f MB/s", task.Sign, task.Size, task.Process, task.Speed()/(1024*1024)))
+								// 记录任务完成时每个合成节点slot的合成速度及总体合成速度（只写日志文件）
+								finishedSlots := o.dbService.QueryFinishedSlotsByTask(taskSign)
+								for _, fs := range finishedSlots {
+									if fs.CommitSlot != nil {
+										paradigm.Log("SYNTH_SPEED", fmt.Sprintf("[Task Done] Task=%s, SlotHash=%s, NodeID=%d, UploadSize=%.2f MB, Speed=%.4f MB/s",
+											taskSign, fs.SlotID, fs.CommitSlot.GetNid(), float64(fs.CommitSlot.GetUploadSize())/1024.0/1024.0, fs.CommitSlot.GetSpeed()/1024.0/1024.0))
+									}
+								}
+								paradigm.Log("SYNTH_SPEED", fmt.Sprintf("[Task Done] Task=%s, TotalSlots=%d, TotalUploadSize=%.2f MB, OverallSpeed=%.4f MB/s",
+									taskSign, len(finishedSlots), float64(task.UploadSize)/1024.0/1024.0, task.Speed()/1024.0/1024.0))
 							}
 							//更新task
 							// o.dbService.UpdateTask(task)
