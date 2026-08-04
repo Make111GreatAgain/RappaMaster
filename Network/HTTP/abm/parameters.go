@@ -233,15 +233,113 @@ func BuildSupportedStockIndex(base map[string]interface{}, config *paradigm.BHLa
 	dataDir := StockDataDir(config)
 	paramDir := StockParamDir(config)
 	specs := BuildParameterSpecMap(base)
+	mode := DataSourceMode(config)
+	remoteIndexMode := shouldValidateParameterStockData(config)
 
+	paramStocks, err := buildParameterDirectoryStockMap(dataDir, paramDir, specs)
+	if err != nil {
+		if !remoteIndexMode || mode == stockDataSourceLocal {
+			return nil, err
+		}
+		paradigm.Log("WARN", fmt.Sprintf("ABM parameter dir unavailable, continue with universe fallback, dir=%s, error=%v", paramDir, err))
+		paramStocks = map[string]StockSimulationMeta{}
+	}
+
+	universeStocks := map[string]UniverseStock{}
+	if remoteIndexMode && mode != stockDataSourceLocal {
+		loaded, err := LoadParameterUniverseStocks(config)
+		if err != nil {
+			if len(paramStocks) == 0 {
+				return nil, err
+			}
+			paradigm.Log("WARN", fmt.Sprintf("ABM parameter universe unavailable, use parameter dir only, error=%v", err))
+		} else {
+			universeStocks = loaded
+		}
+	}
+
+	candidates := map[string]StockSimulationMeta{}
+	if len(paramStocks) > 0 {
+		for stockCode, meta := range paramStocks {
+			if len(universeStocks) > 0 {
+				if universeStock, ok := universeStocks[stockCode]; ok {
+					if strings.TrimSpace(universeStock.StockName) != "" {
+						meta.StockName = universeStock.StockName
+					}
+				} else {
+					continue
+				}
+			}
+			candidates[stockCode] = meta
+		}
+	} else if remoteIndexMode && mode != stockDataSourceLocal {
+		for stockCode, universeStock := range universeStocks {
+			stockName := strings.TrimSpace(universeStock.StockName)
+			if stockName == "" {
+				stockName = ResolveStockDisplayName(stockCode, stockCode)
+			}
+			inputPath := filepath.Join(dataDir, stockCode+".csv")
+			inputMTime := int64(0)
+			hasInputCsv := false
+			if info, err := os.Stat(inputPath); err == nil && !info.IsDir() {
+				hasInputCsv = true
+				inputMTime = info.ModTime().Unix()
+			}
+			candidates[stockCode] = StockSimulationMeta{
+				StockCode:            stockCode,
+				StockName:            stockName,
+				SupportSimulation:    true,
+				HasInputCsv:          hasInputCsv,
+				HasTunedParams:       false,
+				TunedParams:          map[string]float64{},
+				InputCsvPath:         inputPath,
+				InputCsvLastModified: inputMTime,
+			}
+		}
+	}
+
+	stockMap, err := filterCandidatesByAvailableStockData(candidates, config)
+	if err != nil {
+		return nil, err
+	}
+
+	supportedList := make([]StockSimulationListItem, 0, len(stockMap))
+	tunedCount := 0
+	for _, meta := range stockMap {
+		if meta.HasTunedParams {
+			tunedCount++
+		}
+		supportedList = append(supportedList, StockSimulationListItem{
+			StockCode:      meta.StockCode,
+			StockName:      meta.StockName,
+			HasTunedParams: meta.HasTunedParams,
+		})
+	}
+
+	sort.Slice(supportedList, func(i, j int) bool {
+		return supportedList[i].StockCode < supportedList[j].StockCode
+	})
+
+	return &SupportedStockIndex{
+		Version:            now.Format("20060102_150405"),
+		LastUpdatedAt:      now.Format("2006-01-02 15:04:05"),
+		StockDataDir:       dataDir,
+		StockParamDir:      paramDir,
+		ParameterSpecs:     specs,
+		StockMap:           stockMap,
+		SupportedStockList: supportedList,
+		Total:              len(supportedList),
+		TunedCount:         tunedCount,
+	}, nil
+}
+
+func buildParameterDirectoryStockMap(dataDir string, paramDir string, specs map[string]ParameterSpec) (map[string]StockSimulationMeta, error) {
 	entries, err := os.ReadDir(paramDir)
 	if err != nil {
 		return nil, err
 	}
 
 	stockMap := map[string]StockSimulationMeta{}
-	supportedList := make([]StockSimulationListItem, 0, len(entries))
-	tunedCount := 0
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -259,10 +357,6 @@ func BuildSupportedStockIndex(base map[string]interface{}, config *paradigm.BHLa
 			continue
 		}
 		tunedParams, tunedMTime, hasTuned := loadStockTunedParamsFromPath(stockCode, paramPath, specs)
-		if hasTuned {
-			tunedCount++
-		}
-
 		inputPath := filepath.Join(dataDir, stockCode+".csv")
 		inputMTime := int64(0)
 		hasInputCsv := false
@@ -285,28 +379,96 @@ func BuildSupportedStockIndex(base map[string]interface{}, config *paradigm.BHLa
 			TunedParamLastModified: tunedMTime,
 		}
 		stockMap[stockCode] = meta
-		supportedList = append(supportedList, StockSimulationListItem{
-			StockCode:      stockCode,
-			StockName:      stockName,
-			HasTunedParams: hasTuned,
-		})
 	}
 
-	sort.Slice(supportedList, func(i, j int) bool {
-		return supportedList[i].StockCode < supportedList[j].StockCode
-	})
+	return stockMap, nil
+}
 
-	return &SupportedStockIndex{
-		Version:            now.Format("20060102_150405"),
-		LastUpdatedAt:      now.Format("2006-01-02 15:04:05"),
-		StockDataDir:       dataDir,
-		StockParamDir:      paramDir,
-		ParameterSpecs:     specs,
-		StockMap:           stockMap,
-		SupportedStockList: supportedList,
-		Total:              len(supportedList),
-		TunedCount:         tunedCount,
-	}, nil
+func filterCandidatesByAvailableStockData(candidates map[string]StockSimulationMeta, config *paradigm.BHLayer2NodeConfig) (map[string]StockSimulationMeta, error) {
+	mode := DataSourceMode(config)
+	if !shouldValidateParameterStockData(config) || mode == stockDataSourceLocal {
+		return candidates, nil
+	}
+
+	window, err := NormalizeABMDataWindow(map[string]interface{}{}, config)
+	if err != nil {
+		return nil, err
+	}
+
+	requests := make([]StockDataAvailabilityRequest, 0, len(candidates))
+	for stockCode, meta := range candidates {
+		if meta.HasInputCsv {
+			continue
+		}
+		requests = append(requests, StockDataAvailabilityRequest{
+			StockCode: stockCode,
+			Window:    window,
+			Config:    config,
+		})
+	}
+	if len(requests) == 0 {
+		return candidates, nil
+	}
+
+	stockDataAvailabilityCheckerMu.Lock()
+	checker := stockDataAvailabilityChecker
+	stockDataAvailabilityCheckerMu.Unlock()
+	if checker == nil {
+		checker = defaultStockDataAvailabilityChecker{}
+	}
+
+	results := map[string]StockDataAvailabilityResult{}
+	if batchChecker, ok := checker.(BatchStockDataAvailabilityChecker); ok {
+		results, err = batchChecker.CheckStockDataAvailableBatch(requests)
+	} else {
+		results = make(map[string]StockDataAvailabilityResult, len(requests))
+		for _, req := range requests {
+			result, singleErr := checker.CheckStockDataAvailable(req)
+			if singleErr != nil {
+				err = singleErr
+				break
+			}
+			results[req.StockCode] = result
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	stockMap := make(map[string]StockSimulationMeta, len(candidates))
+	for stockCode, meta := range candidates {
+		if meta.HasInputCsv {
+			stockMap[stockCode] = meta
+			continue
+		}
+		result := results[stockCode]
+		if !result.Available {
+			continue
+		}
+		meta.SupportSimulation = true
+		stockMap[stockCode] = meta
+	}
+	return stockMap, nil
+}
+
+func shouldValidateParameterStockData(config *paradigm.BHLayer2NodeConfig) bool {
+	return config != nil && strings.TrimSpace(config.ABMStockDataSource) != "" && DataSourceMode(config) != stockDataSourceLocal
+}
+
+func LoadParameterUniverseStocks(config *paradigm.BHLayer2NodeConfig) (map[string]UniverseStock, error) {
+	universe := ScheduledUniverseHS300
+	if value := strings.TrimSpace(os.Getenv("ABM_PARAMETER_UNIVERSE")); value != "" {
+		universe = value
+	} else if config != nil && strings.TrimSpace(config.ABMParameterUniverse) != "" {
+		universe = strings.TrimSpace(config.ABMParameterUniverse)
+	} else if strings.TrimSpace(paradigm.DefaultBHLayer2NodeConfig.ABMParameterUniverse) != "" {
+		universe = strings.TrimSpace(paradigm.DefaultBHLayer2NodeConfig.ABMParameterUniverse)
+	}
+	window, err := NormalizeABMDataWindow(map[string]interface{}{}, config)
+	if err != nil {
+		return nil, err
+	}
+	return LoadUniverseStocks(universe, window.EndDate, config)
 }
 
 func BuildABMParameterListResponse(index *SupportedStockIndex, pageNo int, pageSize int, keyword string) map[string]interface{} {
@@ -346,6 +508,10 @@ func BuildABMParameterListResponse(index *SupportedStockIndex, pageNo int, pageS
 }
 
 func BuildABMSingleStockDetail(base map[string]interface{}, index *SupportedStockIndex, stockCode string) map[string]interface{} {
+	return BuildABMSingleStockDetailWithConfig(base, index, stockCode, nil)
+}
+
+func BuildABMSingleStockDetailWithConfig(base map[string]interface{}, index *SupportedStockIndex, stockCode string, config *paradigm.BHLayer2NodeConfig) map[string]interface{} {
 	rawStockCode := strings.TrimSpace(stockCode)
 	stockCode = NormalizeStockCode(stockCode)
 	if stockCode == "" {
@@ -368,6 +534,9 @@ func BuildABMSingleStockDetail(base map[string]interface{}, index *SupportedStoc
 			HasInputCsv:       false,
 			HasTunedParams:    false,
 			TunedParams:       map[string]float64{},
+		}
+		if isStockAvailableFromRemoteForSingleDetail(stockCode, config) {
+			meta.SupportSimulation = true
 		}
 	}
 	if strings.TrimSpace(meta.StockName) == "" {
@@ -395,6 +564,18 @@ func BuildABMSingleStockDetail(base map[string]interface{}, index *SupportedStoc
 		"hasTunedParams":    meta.HasTunedParams,
 		"parameters":        parameters,
 	}
+}
+
+func isStockAvailableFromRemoteForSingleDetail(stockCode string, config *paradigm.BHLayer2NodeConfig) bool {
+	if stockCode == "" || !shouldValidateParameterStockData(config) {
+		return false
+	}
+	result, _, err := ValidateStockDataAvailable(stockCode, map[string]interface{}{}, config)
+	if err != nil {
+		paradigm.Log("WARN", fmt.Sprintf("ABM single stock remote availability check failed, stockCode=%s, error=%v", stockCode, err))
+		return false
+	}
+	return result.Available
 }
 
 func IsStockSupportedByIndex(stockCode string) bool {

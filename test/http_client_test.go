@@ -13,6 +13,9 @@ import (
 )
 
 func TestHttpClient(t *testing.T) {
+	if os.Getenv("RAPPA_RUN_INTERACTIVE_HTTP_CLIENT_TEST") != "1" {
+		t.Skip("set RAPPA_RUN_INTERACTIVE_HTTP_CLIENT_TEST=1 to run the interactive HTTP client")
+	}
 	//fmt.Println("Welcome to the HTTP Client Shell!")
 	//fmt.Println("Type 'create' to create a new task or 'exit' to quit.")
 

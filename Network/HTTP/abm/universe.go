@@ -90,6 +90,9 @@ func LoadUniverseStocks(universe string, targetDate string, config *paradigm.BHL
 }
 
 func UniverseSnapshotRoot(config *paradigm.BHLayer2NodeConfig) string {
+	if value := strings.TrimSpace(os.Getenv("ABM_UNIVERSE_SNAPSHOT_ROOT")); value != "" {
+		return value
+	}
 	if config != nil && strings.TrimSpace(config.ABMUniverseSnapshotRoot) != "" {
 		return strings.TrimSpace(config.ABMUniverseSnapshotRoot)
 	}

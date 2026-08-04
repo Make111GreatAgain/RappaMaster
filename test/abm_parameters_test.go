@@ -2,6 +2,7 @@ package test
 
 import (
 	"BHLayer2Node/Network/HTTP"
+	abmhttp "BHLayer2Node/Network/HTTP/abm"
 	"BHLayer2Node/paradigm"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,90 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+func TestABMParameterIndexRemoteModeFiltersParamStocksByUniverseAndDatabase(t *testing.T) {
+	dataDir := t.TempDir()
+	paramsDir := t.TempDir()
+	universeRoot := t.TempDir()
+	writeABMParameterParamFile(t, paramsDir, "600000", 123)
+	writeABMParameterParamFile(t, paramsDir, "600002", 456)
+	writeUniverseSnapshot(t, universeRoot, "hs300", "2026Q1", map[string]string{
+		"600000": "浦发银行",
+		"600001": "测试银行",
+		"600002": "测试股份",
+	})
+
+	restore := abmhttp.SetStockDataAvailabilityCheckerForTest(&fakeStockDataChecker{
+		results: map[string]abmhttp.StockDataAvailabilityResult{
+			"600002": {
+				Available: false,
+				Source:    "dolphindb",
+				Reason:    "no remote rows",
+			},
+		},
+	})
+	defer restore()
+
+	index, err := abmhttp.BuildSupportedStockIndex(testABMParametersBase(), &paradigm.BHLayer2NodeConfig{
+		ABMStockDataDir:         dataDir,
+		ABMStockParamDir:        paramsDir,
+		ABMStockDataSource:      "auto",
+		ABMUniverseSnapshotRoot: universeRoot,
+		ABMParameterUniverse:    "hs300",
+	})
+	if err != nil {
+		t.Fatalf("build index: %v", err)
+	}
+	if index.Total != 1 || index.TunedCount != 1 {
+		t.Fatalf("expected one available tuned stock, got total=%d tuned=%d list=%#v", index.Total, index.TunedCount, index.SupportedStockList)
+	}
+	meta, ok := index.StockMap["600000"]
+	if !ok || !meta.SupportSimulation || !meta.HasTunedParams {
+		t.Fatalf("expected 600000 available with tuned params, got %#v", meta)
+	}
+	if _, exists := index.StockMap["600002"]; exists {
+		t.Fatalf("expected unavailable stock filtered out, got %#v", index.StockMap["600002"])
+	}
+}
+
+func TestABMParameterIndexRemoteModeUsesUniverseWhenParamDirEmpty(t *testing.T) {
+	dataDir := t.TempDir()
+	paramsDir := t.TempDir()
+	universeRoot := t.TempDir()
+	writeUniverseSnapshot(t, universeRoot, "hs300", "2026Q1", map[string]string{
+		"600000": "浦发银行",
+		"600001": "测试银行",
+	})
+
+	restore := abmhttp.SetStockDataAvailabilityCheckerForTest(&fakeStockDataChecker{
+		results: map[string]abmhttp.StockDataAvailabilityResult{
+			"600001": {
+				Available: false,
+				Source:    "dolphindb",
+				Reason:    "no remote rows",
+			},
+		},
+	})
+	defer restore()
+
+	index, err := abmhttp.BuildSupportedStockIndex(testABMParametersBase(), &paradigm.BHLayer2NodeConfig{
+		ABMStockDataDir:         dataDir,
+		ABMStockParamDir:        paramsDir,
+		ABMStockDataSource:      "dolphindb",
+		ABMUniverseSnapshotRoot: universeRoot,
+		ABMParameterUniverse:    "hs300",
+	})
+	if err != nil {
+		t.Fatalf("build index: %v", err)
+	}
+	if index.Total != 1 || index.TunedCount != 0 {
+		t.Fatalf("expected one available default stock, got total=%d tuned=%d list=%#v", index.Total, index.TunedCount, index.SupportedStockList)
+	}
+	meta, ok := index.StockMap["600000"]
+	if !ok || !meta.SupportSimulation || meta.HasTunedParams {
+		t.Fatalf("expected 600000 available with default params, got %#v", meta)
+	}
+}
 
 func TestABMParametersEndpointReturnsSupportedStockListOnly(t *testing.T) {
 	dataDir := t.TempDir()

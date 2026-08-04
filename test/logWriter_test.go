@@ -2,25 +2,16 @@ package test
 
 import (
 	"BHLayer2Node/paradigm"
-	"BHLayer2Node/utils"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 // TestLogWriter tests the LogWriter functionality
 func TestLogWriter(t *testing.T) {
-	root_path, err := utils.GetProjectRoot()
-	if err != nil {
-		t.Fatalf("Failed to find root path: %v", err)
-	}
-	logPath := filepath.Join(root_path, "logs")
+	logPath := t.TempDir()
 	debug := false
-
-	// Ensure test log directory exists
-	if err := os.MkdirAll(logPath, 0755); err != nil {
-		t.Fatalf("Failed to create log directory: %v", err)
-	}
 
 	// Create and initialize LogWriter
 	logWriter := paradigm.NewLogWriter(logPath, debug)
@@ -48,11 +39,16 @@ func TestLogWriter(t *testing.T) {
 		t.Fatalf("No log file was created in the directory: %s", logPath)
 	}
 
-	// Check log file content
-	logFile := logPath + "/" + files[0].Name()
-	content, err := os.ReadFile(logFile)
-	if err != nil {
-		t.Fatalf("Failed to read log file: %v", err)
+	var contents strings.Builder
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		content, err := os.ReadFile(filepath.Join(logPath, file.Name()))
+		if err != nil {
+			t.Fatalf("Failed to read log file %s: %v", file.Name(), err)
+		}
+		contents.Write(content)
 	}
 
 	expectedMessages := []string{
@@ -67,7 +63,7 @@ func TestLogWriter(t *testing.T) {
 	}
 
 	for _, msg := range expectedMessages {
-		if !contains(string(content), msg) {
+		if !strings.Contains(contents.String(), msg) {
 			t.Errorf("Log file does not contain expected message: %s", msg)
 		}
 	}
@@ -76,9 +72,4 @@ func TestLogWriter(t *testing.T) {
 	//if err := os.RemoveAll(logPath); err != nil {
 	//	t.Logf("Failed to clean up log directory: %v", err)
 	//}
-}
-
-// Helper function to check if a string is contained in another string
-func contains(haystack, needle string) bool {
-	return len(haystack) > 0 && len(needle) > 0 && (len(haystack) >= len(needle) && haystack[:len(needle)] == needle || contains(haystack[1:], needle))
 }

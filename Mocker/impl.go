@@ -37,7 +37,7 @@ func (m *MockerExecutionNode) Schedule(ctx context.Context, req *service.Schedul
 	// 如果接受任务，将其存储到 slotData
 	m.slotData[req.Sign] = strconv.Itoa(int(req.Slot))
 
-	paradigm.Log("DEBUG", fmt.Sprintf("Node %d accepted task %s for slot %s", m.nodeID, req.Sign, req.Slot))
+	paradigm.Log("DEBUG", fmt.Sprintf("Node %d accepted task %s for slot %d", m.nodeID, req.Sign, req.Slot))
 	id, _ := strconv.Atoi(req.Sign)
 	size := req.Size
 	slot := req.Slot

@@ -139,8 +139,10 @@ type BHLayer2NodeConfig struct {
 	ABMRemoteSZTableName          string                 // ABM 深市远程行情库 table
 	ABMRemoteCheckPython          string                 // ABM 远程行情校验 Python 可执行文件
 	ABMRemoteCheckScript          string                 // ABM 远程行情校验脚本
+	ABMRemoteCheckTimeout         string                 // ABM 远程行情校验超时时间
 	ABMRemoteDefaultEndOffsetDays int                    // 默认查询 T-N 日
 	ABMUniverseSnapshotRoot       string                 // ABM 指数成分股季度快照目录
+	ABMParameterUniverse          string                 // ABM 参数接口候选成分股范围
 }
 
 // DefaultBHLayer2NodeConfig 定义默认的配置值
@@ -208,8 +210,10 @@ var DefaultBHLayer2NodeConfig = BHLayer2NodeConfig{
 	ABMRemoteSZTableName:          "l1_trdmin1_sz",
 	ABMRemoteCheckPython:          "python3",
 	ABMRemoteCheckScript:          "tools/abm_remote_data_check.py",
+	ABMRemoteCheckTimeout:         "5s",
 	ABMRemoteDefaultEndOffsetDays: 1,
-	ABMUniverseSnapshotRoot:       "resources/abm_universe",
+	ABMUniverseSnapshotRoot:       "/root/rappa/stockdata/universe",
+	ABMParameterUniverse:          "hs300",
 }
 
 //var (

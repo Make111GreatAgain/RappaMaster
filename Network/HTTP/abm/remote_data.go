@@ -2,6 +2,7 @@ package abm
 
 import (
 	"BHLayer2Node/paradigm"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -38,6 +39,10 @@ type StockDataAvailabilityResult struct {
 
 type StockDataAvailabilityChecker interface {
 	CheckStockDataAvailable(req StockDataAvailabilityRequest) (StockDataAvailabilityResult, error)
+}
+
+type BatchStockDataAvailabilityChecker interface {
+	CheckStockDataAvailableBatch(reqs []StockDataAvailabilityRequest) (map[string]StockDataAvailabilityResult, error)
 }
 
 var (
@@ -152,7 +157,69 @@ func (defaultStockDataAvailabilityChecker) CheckStockDataAvailable(req StockData
 	return checkDolphinDBStockData(req)
 }
 
+func (defaultStockDataAvailabilityChecker) CheckStockDataAvailableBatch(reqs []StockDataAvailabilityRequest) (map[string]StockDataAvailabilityResult, error) {
+	results := make(map[string]StockDataAvailabilityResult, len(reqs))
+	remoteGroups := map[string][]StockDataAvailabilityRequest{}
+
+	for _, req := range reqs {
+		stockCode := NormalizeStockCode(req.StockCode)
+		if stockCode == "" {
+			continue
+		}
+		req.StockCode = stockCode
+
+		mode := DataSourceMode(req.Config)
+		localPath := filepath.Join(StockDataDir(req.Config), req.StockCode+".csv")
+		if mode == stockDataSourceLocal || mode == stockDataSourceAuto {
+			if info, err := os.Stat(localPath); err == nil && !info.IsDir() {
+				results[req.StockCode] = StockDataAvailabilityResult{Available: true, Source: stockDataSourceLocal, Reason: "local csv exists"}
+				continue
+			}
+			if mode == stockDataSourceLocal {
+				results[req.StockCode] = StockDataAvailabilityResult{Available: false, Source: stockDataSourceLocal, Reason: "local csv missing"}
+				continue
+			}
+		}
+
+		groupKey := strings.Join([]string{
+			remoteDBForStock(req.Config, req.StockCode),
+			remoteTableForStock(req.Config, req.StockCode),
+			req.Window.StartDate,
+			req.Window.EndDate,
+		}, "\x00")
+		remoteGroups[groupKey] = append(remoteGroups[groupKey], req)
+	}
+
+	for _, group := range remoteGroups {
+		groupResults, err := checkDolphinDBStockDataBatch(group)
+		if err != nil {
+			return results, err
+		}
+		for stockCode, result := range groupResults {
+			results[stockCode] = result
+		}
+	}
+
+	return results, nil
+}
+
 func checkDolphinDBStockData(req StockDataAvailabilityRequest) (StockDataAvailabilityResult, error) {
+	results, err := checkDolphinDBStockDataBatch([]StockDataAvailabilityRequest{req})
+	if err != nil {
+		return StockDataAvailabilityResult{Available: false, Source: stockDataSourceDolphinDB, Reason: err.Error()}, err
+	}
+	if result, ok := results[NormalizeStockCode(req.StockCode)]; ok {
+		return result, nil
+	}
+	return StockDataAvailabilityResult{Available: false, Source: stockDataSourceDolphinDB, Reason: "remote rows missing"}, nil
+}
+
+func checkDolphinDBStockDataBatch(reqs []StockDataAvailabilityRequest) (map[string]StockDataAvailabilityResult, error) {
+	results := make(map[string]StockDataAvailabilityResult, len(reqs))
+	if len(reqs) == 0 {
+		return results, nil
+	}
+	req := reqs[0]
 	config := req.Config
 	python := "python3"
 	script := "tools/abm_remote_data_check.py"
@@ -165,6 +232,13 @@ func checkDolphinDBStockData(req StockDataAvailabilityRequest) (StockDataAvailab
 		}
 	}
 
+	stockCodes := make([]string, 0, len(reqs))
+	for _, item := range reqs {
+		if stockCode := NormalizeStockCode(item.StockCode); stockCode != "" {
+			stockCodes = append(stockCodes, stockCode)
+		}
+	}
+
 	args := []string{
 		script,
 		"--host", remoteConfigString(config, "host"),
@@ -173,37 +247,91 @@ func checkDolphinDBStockData(req StockDataAvailabilityRequest) (StockDataAvailab
 		"--password", remoteConfigString(config, "password"),
 		"--db", remoteDBForStock(config, req.StockCode),
 		"--table", remoteTableForStock(config, req.StockCode),
-		"--stock-code", req.StockCode,
+		"--stock-codes", strings.Join(stockCodes, ","),
 		"--start-date", req.Window.StartDate,
 		"--end-date", req.Window.EndDate,
 	}
-	cmd := exec.Command(python, args...)
+
+	timeout := remoteCheckTimeout(config)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, python, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return StockDataAvailabilityResult{Available: false, Source: stockDataSourceDolphinDB, Reason: strings.TrimSpace(string(output))}, err
+		reason := strings.TrimSpace(string(output))
+		if ctx.Err() == context.DeadlineExceeded {
+			reason = fmt.Sprintf("remote data check timeout after %s", timeout)
+		}
+		for _, stockCode := range stockCodes {
+			results[stockCode] = StockDataAvailabilityResult{Available: false, Source: stockDataSourceDolphinDB, Reason: reason}
+		}
+		return results, fmt.Errorf("%s", reason)
 	}
 
 	var parsed struct {
-		Exists bool   `json:"exists"`
-		Rows   int64  `json:"rows"`
+		Exists bool `json:"exists"`
+		Rows   int64
 		Reason string `json:"reason"`
+		Stocks map[string]struct {
+			Exists bool   `json:"exists"`
+			Rows   int64  `json:"rows"`
+			Reason string `json:"reason"`
+		} `json:"stocks"`
 	}
 	if err := json.Unmarshal(output, &parsed); err != nil {
-		return StockDataAvailabilityResult{Available: false, Source: stockDataSourceDolphinDB, Reason: strings.TrimSpace(string(output))}, err
+		reason := strings.TrimSpace(string(output))
+		for _, stockCode := range stockCodes {
+			results[stockCode] = StockDataAvailabilityResult{Available: false, Source: stockDataSourceDolphinDB, Reason: reason}
+		}
+		return results, err
 	}
-	reason := parsed.Reason
-	if reason == "" && parsed.Exists {
-		reason = "remote rows found"
+
+	if len(parsed.Stocks) == 0 && len(stockCodes) == 1 {
+		parsed.Stocks = map[string]struct {
+			Exists bool   `json:"exists"`
+			Rows   int64  `json:"rows"`
+			Reason string `json:"reason"`
+		}{
+			stockCodes[0]: {Exists: parsed.Exists, Rows: parsed.Rows, Reason: parsed.Reason},
+		}
 	}
-	if reason == "" {
-		reason = "remote rows missing"
+
+	for _, stockCode := range stockCodes {
+		stock := parsed.Stocks[stockCode]
+		reason := stock.Reason
+		if reason == "" && stock.Exists {
+			reason = "remote rows found"
+		}
+		if reason == "" {
+			reason = "remote rows missing"
+		}
+		results[stockCode] = StockDataAvailabilityResult{
+			Available: stock.Exists,
+			Source:    stockDataSourceDolphinDB,
+			Reason:    reason,
+			Rows:      stock.Rows,
+		}
 	}
-	return StockDataAvailabilityResult{
-		Available: parsed.Exists,
-		Source:    stockDataSourceDolphinDB,
-		Reason:    reason,
-		Rows:      parsed.Rows,
-	}, nil
+	return results, nil
+}
+
+func remoteCheckTimeout(config *paradigm.BHLayer2NodeConfig) time.Duration {
+	raw := ""
+	if config != nil {
+		raw = strings.TrimSpace(config.ABMRemoteCheckTimeout)
+	}
+	if raw == "" {
+		raw = strings.TrimSpace(paradigm.DefaultBHLayer2NodeConfig.ABMRemoteCheckTimeout)
+	}
+	if raw == "" {
+		return 5 * time.Second
+	}
+	timeout, err := time.ParseDuration(raw)
+	if err != nil || timeout <= 0 {
+		return 5 * time.Second
+	}
+	return timeout
 }
 
 func remoteDBForStock(config *paradigm.BHLayer2NodeConfig, stockCode string) string {

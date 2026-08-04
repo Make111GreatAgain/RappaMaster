@@ -49,6 +49,10 @@ func (e *HttpEngine) handleAnalyticsQuery(c *gin.Context, analType paradigm.Anal
 		return
 	}
 
+	if analType == paradigm.PerformanceComparison {
+		data = abm.HideUnstablePerformanceMetrics(data)
+	}
+
 	c.JSON(200, paradigm.HttpResponse{Message: "操作成功", Data: data, Code: "S000000"})
 }
 
