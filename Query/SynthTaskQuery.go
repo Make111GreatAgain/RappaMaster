@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -19,8 +20,13 @@ type CollectTaskQuery struct {
 }
 
 type UploadTaskQuery struct {
-	request HttpUploadTaskRequest
+	request   HttpUploadTaskRequest
+	uploadURL string
 	paradigm.BasicChannelQuery
+}
+
+func (q *UploadTaskQuery) SetUploadURL(uploadURL string) {
+	q.uploadURL = strings.TrimSpace(uploadURL)
 }
 
 func (q *UploadTaskQuery) TaskID() paradigm.TaskHash {
@@ -118,7 +124,10 @@ func (q *UploadTaskQuery) GenerateResponse(data interface{}) paradigm.Response {
 	result["uploadParams"] = uploadParams
 
 	//发送上传请求
-	uploadURL := "http://oneplatbank.i2soft.cn:19195/jeecgboot/datap/uploadFile"
+	uploadURL := q.uploadURL
+	if uploadURL == "" {
+		uploadURL = paradigm.DefaultUploadURL
+	}
 	paradigm.Print("UPLOAD", fmt.Sprintf("External upload request url=%s params=%v filename=%s fileSize=%d", uploadURL, uploadParams, fileName, len(fileByte)))
 	uploadResponse, err := utils.UploadFile(uploadURL, uploadParams, fileByte, fileName, "file")
 	if err != nil {

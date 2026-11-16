@@ -9,6 +9,8 @@ import (
 	"strconv"
 )
 
+const DefaultUploadURL = "http://oneplatbank.i2soft.cn:19195/jeecgboot/datap/uploadFile"
+
 // 定义通信节点的地址配置
 type BHNodeAddress struct {
 	NodeIPAddress string //节点IP
@@ -119,6 +121,7 @@ type BHLayer2NodeConfig struct {
 	IsRecovery      bool
 	IsAutoMigrate   bool
 	BatchSize       int
+	UploadURL       string // 合成任务数据上传接口完整地址
 
 	Database            *DatabaseConfig
 	AbmParameters       map[string]interface{} `json:"-"` // 不直接从 config.json 解析，从独立文件加载
@@ -161,6 +164,7 @@ var DefaultBHLayer2NodeConfig = BHLayer2NodeConfig{
 	QueueBufferSize: 100000,
 	WorkerCount:     3, // 256
 	BatchSize:       1,
+	UploadURL:       DefaultUploadURL,
 	IsRecovery:      true,
 	IsAutoMigrate:   true,
 

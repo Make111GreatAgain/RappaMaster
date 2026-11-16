@@ -104,6 +104,7 @@ cat <<EOL >$config_path
   "QueueBufferSize": 100000,
   "WorkerCount": 3,
   "BatchSize": 1,
+  "UploadURL": "http://oneplatbank.i2soft.cn:19195/jeecgboot/datap/uploadFile",
   "ABMStockDataDir": "$ABM_STOCK_DATA_DIR",
   "ABMStockParamDir": "$ABM_STOCK_PARAM_DIR",
   "ErasureCodeParamN": 9,

@@ -222,6 +222,9 @@ func (o *PersistedOracle) processDBQuery() {
 			item.SendResponse(item.GenerateResponse(slots))
 		case *Query.UploadTaskQuery:
 			item := query.(*Query.UploadTaskQuery)
+			if o.channel.Config != nil {
+				item.SetUploadURL(o.channel.Config.UploadURL)
+			}
 			task, err := o.dbService.GetTaskByID(item.TaskID())
 			if err != nil {
 				errorResponse := paradigm.NewErrorResponse(
