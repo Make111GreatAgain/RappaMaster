@@ -25,6 +25,7 @@ type HttpOracleQueryRequest struct {
 
 type HttpUploadTaskRequest struct {
 	TaskID      string
+	DataType    string
 	Purpose     string
 	Description string
 	CreateBy    string
@@ -145,6 +146,7 @@ func (r *HttpOracleQueryRequest) BuildQueryFromGETRequest(c *gin.Context) (bool,
 		})
 	case "UploadTaskQuery":
 		taskID := c.DefaultQuery("taskID", "")
+		dataType := c.DefaultQuery("dataType", "marketRisk")
 		purpose := c.DefaultQuery("purpose", "")
 		description := c.DefaultQuery("description", "")
 		createBy := c.DefaultQuery("createBy", "")
@@ -154,6 +156,7 @@ func (r *HttpOracleQueryRequest) BuildQueryFromGETRequest(c *gin.Context) (bool,
 		// 构造 UploadTaskQuery 对象
 		return true, NewUploadTaskQuery(map[interface{}]interface{}{
 			"taskID":      taskID,
+			"dataType":    dataType,
 			"purpose":     purpose,
 			"description": description,
 			"createBy":    createBy,

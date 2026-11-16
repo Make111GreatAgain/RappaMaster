@@ -106,8 +106,8 @@ func (q *UploadTaskQuery) GenerateResponse(data interface{}) paradigm.Response {
 	}
 
 	uploadParams := map[string]string{
-		"dataType":    "marketRisk",
-		"datasetCode": fmt.Sprintf("%d", task.Model),
+		"dataType":    q.request.DataType,
+		"datasetCode": task.Sign,
 		"datasetName": task.GetDataset(),
 		"datasetType": datasetType,
 		"dataCnt":     strconv.Itoa(int(task.Size)),
@@ -135,6 +135,7 @@ func (q *UploadTaskQuery) ToHttpJson() map[string]interface{} {
 		"query": "UploadTaskQuery", // 建议用方法获取类型名，比如 "UploadTaskQuery"
 		"request": HttpUploadTaskRequest{
 			TaskID:      q.request.TaskID, // 假设 UploadTaskQuery 中有 taskID 字段
+			DataType:    q.request.DataType,
 			Purpose:     q.request.Purpose,
 			Description: q.request.Description,
 			CreateBy:    q.request.CreateBy,
@@ -145,6 +146,7 @@ func (q *UploadTaskQuery) ToHttpJson() map[string]interface{} {
 func (q *UploadTaskQuery) ParseRawDataFromHttpEngine(rawData map[interface{}]interface{}) bool {
 	r := HttpUploadTaskRequest{
 		TaskID:      "",
+		DataType:    "marketRisk",
 		Purpose:     "",
 		Description: "",
 		CreateBy:    "",
@@ -154,6 +156,10 @@ func (q *UploadTaskQuery) ParseRawDataFromHttpEngine(rawData map[interface{}]int
 		r.TaskID = taskID
 	} else {
 		return false
+	}
+
+	if dataType, ok := rawData["dataType"].(string); ok && dataType != "" {
+		r.DataType = dataType
 	}
 
 	if purpose, ok := rawData["purpose"].(string); ok {
