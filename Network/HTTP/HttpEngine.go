@@ -7,6 +7,7 @@ import (
 	"BHLayer2Node/Network/HTTP/abm"
 	"BHLayer2Node/PKI"
 	"BHLayer2Node/paradigm"
+	"context"
 	"fmt"
 	"time"
 
@@ -17,16 +18,17 @@ import (
 
 // HttpEngine 定义模拟的 HTTP 引擎,这里引入gin框架提高编码效率
 type HttpEngine struct {
-	channel        *paradigm.RappaChannel
-	taskIDConsumer chan int // 这里暂时用这个方法获取TaskID
-	taskIDProvider chan paradigm.TaskHash
-	config         paradigm.BHLayer2NodeConfig
-	ip             string // IP 地址
-	port           int    // 端口
-	pkiManager     *PKI.PKIManager
-	dbService      *Database.DatabaseService
-	monitor        *Monitor.Monitor
-	grpcManager    *Grpc.NodeGrpcManager // 新增：用于与节点进行 gRPC 通信
+	channel             *paradigm.RappaChannel
+	taskIDConsumer      chan int // 这里暂时用这个方法获取TaskID
+	taskIDProvider      chan paradigm.TaskHash
+	config              paradigm.BHLayer2NodeConfig
+	ip                  string // IP 地址
+	port                int    // 端口
+	pkiManager          *PKI.PKIManager
+	dbService           *Database.DatabaseService
+	monitor             *Monitor.Monitor
+	grpcManager         *Grpc.NodeGrpcManager // 新增：用于与节点进行 gRPC 通信
+	analyzedStockSearch analyzedStockSearchCache
 	// 服务器
 	r *gin.Engine
 }
@@ -44,6 +46,10 @@ func (e *HttpEngine) AccumulateTaskID() {
 }
 
 func (e *HttpEngine) Start() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	defer e.analyzedStockSearch.close()
+	go e.runAnalyzedStockRefresh(ctx)
 	go e.AccumulateTaskID()
 	abm.StartABMParameterIndexRefresher(e.config.AbmParameters, &e.config)
 	paradigm.Print("INFO", fmt.Sprintf("Http server run on port %s:%d", e.ip, e.port))

@@ -2,6 +2,7 @@ package HTTP
 
 import (
 	"BHLayer2Node/Collector"
+	"BHLayer2Node/Database"
 	"BHLayer2Node/Network/HTTP/abm"
 	"BHLayer2Node/Query"
 	"BHLayer2Node/paradigm"
@@ -164,34 +165,23 @@ func (e *HttpEngine) HandleDownload(c *gin.Context) {
 	}
 }
 
-func matchAnalyzedStockFilter(searchType, keyword string, stock map[string]interface{}) bool {
-	if searchType == "" || keyword == "" {
-		return true
+func normalizeAnalyzedStockPage(pageNo, pageSize int) (int, int) {
+	if pageSize <= 0 {
+		pageSize = 50
 	}
+	return max(1, pageNo), min(500, pageSize)
+}
 
-	lowerKeyword := strings.ToLower(strings.TrimSpace(keyword))
-	match := func(value interface{}) bool {
-		return strings.Contains(strings.ToLower(fmt.Sprintf("%v", value)), lowerKeyword)
-	}
-
-	switch searchType {
-	case "stockCode":
-		return match(stock["stockCode"])
-	case "stockName":
-		return match(stock["stockName"])
-	case "task":
-		return match(stock["taskId"]) || match(stock["taskName"])
-	default:
-		return true
+func analyzedStockPage(items []map[string]interface{}, total int64, pageNo, pageSize int) map[string]interface{} {
+	return map[string]interface{}{
+		"items":    items,
+		"total":    total,
+		"pageNo":   pageNo,
+		"pageSize": pageSize,
 	}
 }
 
 func paginateAnalyzedStocks(items []map[string]interface{}, pageNo, pageSize int) map[string]interface{} {
-	pageNo = max(1, pageNo)
-	if pageSize <= 0 {
-		pageSize = 50
-	}
-	pageSize = min(500, pageSize)
 	total := len(items)
 	start := total
 	// Check the page before multiplying so a large pageNo cannot overflow.
@@ -199,12 +189,7 @@ func paginateAnalyzedStocks(items []map[string]interface{}, pageNo, pageSize int
 		start = (pageNo - 1) * pageSize
 	}
 	end := start + min(pageSize, total-start)
-	return map[string]interface{}{
-		"items":    items[start:end],
-		"total":    total,
-		"pageNo":   pageNo,
-		"pageSize": pageSize,
-	}
+	return analyzedStockPage(items[start:end], int64(total), pageNo, pageSize)
 }
 
 func BuildLatestMarketTaskResponse(platformTask *paradigm.PlatformTask) map[string]interface{} {
@@ -570,16 +555,67 @@ func (e *HttpEngine) GetHttpService(service HttpServiceEnum) (*HttpService, erro
 			Handler: func(c *gin.Context) {
 				searchType := strings.TrimSpace(c.Query("searchType"))
 				keyword := strings.TrimSpace(c.Query("keyword"))
-				if searchType != "" && searchType != "stockCode" && searchType != "stockName" && searchType != "task" {
+				if searchType != "" && searchType != "stockCode" && searchType != "stockName" && searchType != "task" && searchType != "all" {
 					c.JSON(http.StatusBadRequest, paradigm.HttpResponse{
-						Message: "searchType must be one of stockCode, stockName, task",
+						Message: "searchType must be one of stockCode, stockName, task, all",
 						Code:    "E100014",
 						Data:    nil,
 					})
 					return
 				}
 
-				tasks, err := e.dbService.GetFinishedTasks()
+				query := c.Request.URL.Query()
+				matchMode := strings.TrimSpace(query.Get("matchMode"))
+				if matchMode != "" && matchMode != "contains" && matchMode != "exact" {
+					c.JSON(http.StatusBadRequest, paradigm.HttpResponse{
+						Message: "matchMode must be one of contains, exact",
+						Code:    "E100014",
+					})
+					return
+				}
+				paged := query.Has("pageNo") || query.Has("pageSize")
+				pageNo, _ := strconv.Atoi(strings.TrimSpace(query.Get("pageNo")))
+				pageSize, _ := strconv.Atoi(strings.TrimSpace(query.Get("pageSize")))
+				pageNo, pageSize = normalizeAnalyzedStockPage(pageNo, pageSize)
+				searching := searchType != "" && keyword != ""
+				ctx := c.Request.Context()
+				var data interface{}
+				var err error
+				if searching || !paged {
+					var snapshot *analyzedStockSnapshot
+					snapshot, err = e.getAnalyzedStockSnapshot(ctx)
+					if err == nil {
+						if !searching {
+							var content io.ReadCloser
+							var size int64
+							content, size, err = e.analyzedStockSearch.openFullResponse()
+							if err == nil {
+								defer content.Close()
+								c.DataFromReader(http.StatusOK, size, "application/json; charset=utf-8", content, nil)
+								return
+							}
+						} else {
+							result := snapshot.search(searchType, strings.ToLower(keyword), matchMode)
+							data = result
+							if paged {
+								data = paginateAnalyzedStocks(result, pageNo, pageSize)
+							}
+						}
+					}
+				} else {
+					var tasks []Database.AnalyzedStockTask
+					var total int64
+					tasks, total, err = e.dbService.GetAnalyzedStockTaskPage(ctx, pageNo, pageSize)
+					if err == nil {
+						result := make([]map[string]interface{}, 0, len(tasks))
+						for _, task := range tasks {
+							if item, ok := buildAnalyzedStockItem(task); ok {
+								result = append(result, item.data)
+							}
+						}
+						data = analyzedStockPage(result, total, pageNo, pageSize)
+					}
+				}
 				if err != nil {
 					c.JSON(http.StatusInternalServerError, paradigm.HttpResponse{
 						Message: "获取分析已完成任务失败",
@@ -587,64 +623,6 @@ func (e *HttpEngine) GetHttpService(service HttpServiceEnum) (*HttpService, erro
 						Data:    nil,
 					})
 					return
-				}
-
-				sort.Slice(tasks, func(i, j int) bool {
-					left, right := tasks[i], tasks[j]
-					if left.StartTime.Equal(right.StartTime) {
-						return left.Sign < right.Sign
-					}
-					return left.StartTime.After(right.StartTime)
-				})
-
-				result := make([]map[string]interface{}, 0)
-				for _, t := range tasks {
-					p := t.Params
-					stockCode := strings.TrimSpace(stringifyTaskParam(p["stockCode"]))
-					if stockCode == "" {
-						// 历史脏数据或非平台分析任务不应出现在股票分析列表里，直接跳过。
-						continue
-					}
-					stockName := abm.ResolveStockDisplayName(stockCode, stringifyTaskParam(p["stockName"]))
-					stockID := p["stockId"]
-					if stockID == nil {
-						// ABM_V2 当前请求体只稳定传 stockCode，这里回退保证前端有可用主键。
-						stockID = stockCode
-					}
-					taskID := t.Sign
-					if t.PlatformTaskID != nil && strings.TrimSpace(*t.PlatformTaskID) != "" {
-						taskID = *t.PlatformTaskID
-					}
-					stock := map[string]interface{}{
-						"stockId":   stockID,
-						"stockCode": stockCode,
-						"stockName": stockName,
-						"label":     fmt.Sprintf("%v %v", stockCode, stockName),
-						"taskId":    taskID,
-						"taskName":  fmt.Sprintf("%v 风险监测", stockName), // 如果没有platform task name就拼一下
-						"date":      t.StartTime.Format("2006-01-02"),
-					}
-
-					// 如果有关联的平台任务，可以尝试获取它的名字
-					if t.PlatformTaskID != nil {
-						pt, err := e.dbService.GetPlatformTaskByID(*t.PlatformTaskID)
-						if err == nil && pt != nil {
-							stock["taskName"] = pt.TaskName
-						}
-					}
-
-					if !matchAnalyzedStockFilter(searchType, keyword, stock) {
-						continue
-					}
-
-					result = append(result, stock)
-				}
-
-				data := interface{}(result)
-				if c.Request.URL.Query().Has("pageNo") || c.Request.URL.Query().Has("pageSize") {
-					pageNo, _ := strconv.Atoi(strings.TrimSpace(c.Query("pageNo")))
-					pageSize, _ := strconv.Atoi(strings.TrimSpace(c.Query("pageSize")))
-					data = paginateAnalyzedStocks(result, pageNo, pageSize)
 				}
 
 				c.JSON(http.StatusOK, paradigm.HttpResponse{

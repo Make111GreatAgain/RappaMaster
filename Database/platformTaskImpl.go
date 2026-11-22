@@ -2,6 +2,8 @@ package Database
 
 import (
 	"BHLayer2Node/paradigm"
+	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -153,4 +155,74 @@ func (o DatabaseService) GetFinishedTasks() ([]*paradigm.Task, error) {
 		return nil, err
 	}
 	return tasks, nil
+}
+
+// AnalyzedStockTask contains the fields needed by the analyzed stocks list.
+type AnalyzedStockTask struct {
+	Sign             string
+	StartTime        time.Time
+	PlatformTaskID   *string
+	PlatformTaskName *string
+	Params           map[string]interface{} `gorm:"serializer:json"`
+}
+
+func analyzedStockTaskQuery(db *gorm.DB) *gorm.DB {
+	return db.Table("tasks").
+		Where("tasks.status = ? AND tasks.platform_task_id IS NOT NULL AND tasks.model = ?", paradigm.Finished, paradigm.ABM_V2)
+}
+
+func selectAnalyzedStockTasks(query *gorm.DB) *gorm.DB {
+	return query.Select(`tasks.sign, tasks.start_time, tasks.platform_task_id,
+		platform_tasks.task_name AS platform_task_name,
+		JSON_OBJECT(
+			'stockCode', JSON_EXTRACT(tasks.params, '$.stockCode'),
+			'stockName', JSON_EXTRACT(tasks.params, '$.stockName'),
+			'stockId', JSON_EXTRACT(tasks.params, '$.stockId')
+		) AS params`).
+		Joins("LEFT JOIN platform_tasks ON platform_tasks.id = tasks.platform_task_id").
+		Order("tasks.start_time DESC, tasks.sign ASC")
+}
+
+// VisitAnalyzedStockTasks streams the fields needed to refresh the search snapshot.
+func (o DatabaseService) VisitAnalyzedStockTasks(ctx context.Context, visit func(AnalyzedStockTask)) error {
+	query := selectAnalyzedStockTasks(analyzedStockTaskQuery(o.db.WithContext(ctx)))
+	rows, err := query.Rows()
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var task AnalyzedStockTask
+		if err := query.ScanRows(rows, &task); err != nil {
+			return err
+		}
+		visit(task)
+	}
+	return rows.Err()
+}
+
+// GetAnalyzedStockTaskPage counts eligible rows and loads only the requested page.
+func (o DatabaseService) GetAnalyzedStockTaskPage(ctx context.Context, pageNo, pageSize int) ([]AnalyzedStockTask, int64, error) {
+	if pageNo < 1 || pageSize < 1 {
+		return nil, 0, fmt.Errorf("page number and size must be positive")
+	}
+	var tasks []AnalyzedStockTask
+	var total int64
+	err := o.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Match the list's exclusion of blank and missing stock codes.
+		query := analyzedStockTaskQuery(tx).
+			Where(`JSON_TYPE(JSON_EXTRACT(tasks.params, '$.stockCode')) <> 'NULL'
+				AND JSON_UNQUOTE(JSON_EXTRACT(tasks.params, '$.stockCode')) REGEXP '[^[:space:]]'`)
+		if err := query.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+			return err
+		}
+		if total == 0 || int64(pageNo-1) > (total-1)/int64(pageSize) {
+			return nil
+		}
+		page := query.Select("tasks.sign, tasks.start_time, tasks.platform_task_id, tasks.params").
+			Order("tasks.start_time DESC, tasks.sign ASC").
+			Offset((pageNo - 1) * pageSize).Limit(pageSize)
+		return selectAnalyzedStockTasks(tx.Table("(?) AS tasks", page)).Find(&tasks).Error
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	return tasks, total, err
 }
