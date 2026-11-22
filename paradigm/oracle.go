@@ -48,11 +48,11 @@ type DevReference struct {
 	TID         int64         `gorm:"primaryKey;autoIncrement"`
 	TxHash      string        `gorm:"type:char(66);Index:idx_tx_hash"` // 添加普通索引
 	TxReceipt   types.Receipt `gorm:"type:json;serializer:json"`
-	TxBlockHash string        `gorm:"not null;type:char(66);index:idx_block_hash"`   // 添加普通索引
-	Rf          RFType        `gorm:"not null;type:tinyint;index:idx_rf"`            // 添加普通索引
-	TaskID      TaskHash      `gorm:"type:varchar(255);index:idx_task_id"`           // 添加普通索引
-	EpochID     int32         `gorm:"type:int;index:idx_epoch_id"`                   // 添加普通索引
-	UpchainTime time.Time     `gorm:"not null;type:datetime;index:idx_upchain_time"` // 添加普通索引
+	TxBlockHash string        `gorm:"not null;type:char(66);index:idx_block_hash"`                       // 添加普通索引
+	Rf          RFType        `gorm:"not null;type:tinyint;index:idx_rf;index:idx_epoch_ref,priority:1"` // 添加普通索引
+	TaskID      TaskHash      `gorm:"type:varchar(255);index:idx_task_id"`                               // 添加普通索引
+	EpochID     int32         `gorm:"type:int;index:idx_epoch_id;index:idx_epoch_ref,priority:2"`        // 添加普通索引
+	UpchainTime time.Time     `gorm:"not null;type:datetime;index:idx_upchain_time"`                     // 添加普通索引
 }
 
 // CommitRecord 每个commitRecord对应一个完成finalize的commitSlotItem，对应一笔TaskProcessTransaction
@@ -136,6 +136,12 @@ type EpochRecord struct {
 	Invalids   map[SlotHash]InvalidCommitError // 在这个epoch里被检测出的问题slot, 节点可以根据这个删、改
 	Tasks      map[string]int32                // 新收到的任务sign, 对应的数据量
 	Process    int32                           // 一共处理了多少
+}
+
+// IsEmpty reports whether the original epoch contains no business data.
+func (r *EpochRecord) IsEmpty() bool {
+	return r.Process == 0 && len(r.Commits) == 0 && len(r.Justifieds) == 0 &&
+		len(r.Finalizes) == 0 && len(r.Invalids) == 0 && len(r.Tasks) == 0
 }
 
 func (r *EpochRecord) UpdateTask(task *Task) {

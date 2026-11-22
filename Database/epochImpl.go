@@ -2,126 +2,191 @@ package Database
 
 import (
 	"BHLayer2Node/paradigm"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"gorm.io/gorm"
 )
 
-// // 记录epoch
-// func (o *PersistedOracle) setEpoch(epochRecord *paradigm.DevEpoch) {
-// 	o.db.Create(epochRecord)
-// }
-
-func (o DatabaseService) SaveEpochRecord(epoch *paradigm.DevEpoch) error {
+// SaveEpochReceipt always records the receipt. A nil epoch omits only the detail.
+func (o DatabaseService) SaveEpochReceipt(reference *paradigm.DevReference, epoch *paradigm.DevEpoch) error {
 	return o.db.Transaction(func(tx *gorm.DB) error {
-		result := tx.Create(epoch)
-		if result.Error != nil {
-			return result.Error
+		if err := tx.Create(reference).Error; err != nil {
+			return err
 		}
-		return nil
+		if epoch == nil {
+			return nil
+		}
+		epoch.TID = reference.TID
+		return tx.Create(epoch).Error
 	})
 }
 
-func (o DatabaseService) SetEpoch(epochRecord *paradigm.DevEpoch) error {
-	if err := o.SaveEpochRecord(epochRecord); err != nil {
-		paradigm.Error(paradigm.RuntimeError,
-			fmt.Sprintf("Failed to save epoch record: %v", err))
-		return err
+func emptyEpoch(id int32) *paradigm.DevEpoch {
+	return &paradigm.DevEpoch{
+		EpochID:    id,
+		Process:    make(map[paradigm.SupportModelType]int32),
+		Commits:    make(map[paradigm.SupportModelType][]paradigm.SlotHash),
+		Justifieds: make(map[paradigm.SupportModelType][]paradigm.SlotHash),
+		Finalizes:  make(map[paradigm.SupportModelType][]paradigm.SlotHash),
+		Invalids:   []*paradigm.Slot{},
+		InitTasks:  []*paradigm.Task{},
+		SlotMap:    make(map[paradigm.SlotHash]*paradigm.Slot),
 	}
-	return nil
 }
 
-// GetEpochByID 通过纪元标识查询纪元
-func (o DatabaseService) GetEpochByID(epochID int32) (*paradigm.DevEpoch, error) {
+func attachEpochReceipt(epoch *paradigm.DevEpoch, ref *paradigm.DevReference) {
+	epoch.TID = ref.TID
+	epoch.TxHash = ref.TxHash
+	epoch.TxBlockHash = ref.TxBlockHash
+	epoch.TxReceipt = &ref.TxReceipt
+	if epoch.CreatedAt.IsZero() {
+		epoch.CreatedAt = ref.UpchainTime
+	}
+}
+
+func (o DatabaseService) GetEpochByID(id int32) (*paradigm.DevEpoch, error) {
+	var epoch *paradigm.DevEpoch
+	err := o.db.Transaction(func(tx *gorm.DB) error {
+		var err error
+		epoch, err = (DatabaseService{db: tx}).getEpoch(id, nil)
+		return err
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	return epoch, err
+}
+
+func (o DatabaseService) getEpoch(id int32, ref *paradigm.DevReference) (*paradigm.DevEpoch, error) {
+	if id < 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
 	var epoch paradigm.DevEpoch
-	err := o.db.Where("epoch_id = ?", epochID).First(&epoch).Error
+	err := o.db.Where("epoch_id = ?", id).First(&epoch).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		if ref == nil {
+			maxID, err := o.GetMaxEpochID()
+			if err != nil {
+				return nil, err
+			}
+			if id > maxID {
+				return nil, gorm.ErrRecordNotFound
+			}
+			var found paradigm.DevReference
+			err = o.db.Where("epoch_id = ? AND rf = ?", id, paradigm.EpochTx).Order("t_id DESC").Take(&found).Error
+			if err == nil {
+				ref = &found
+			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, err
+			}
+		}
+		empty := emptyEpoch(id)
+		if ref != nil {
+			attachEpochReceipt(empty, ref)
+		}
+		return empty, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	tx := paradigm.DevReference{}
-	if err := o.db.Take(&tx, epoch.TID).Error; err != nil {
-		return nil, fmt.Errorf("failed to get associated transaction: %v", err)
+	var storedRef paradigm.DevReference
+	if err := o.db.Take(&storedRef, epoch.TID).Error; err != nil {
+		return nil, fmt.Errorf("failed to get associated transaction: %w", err)
 	}
-	epoch.TxHash = tx.TxHash
-	epoch.TxBlockHash = tx.TxBlockHash
-	epoch.TxReceipt = &tx.TxReceipt
-
+	attachEpochReceipt(&epoch, &storedRef)
 	epoch.SlotMap = make(map[paradigm.SlotHash]*paradigm.Slot)
-
-	var allHashes []paradigm.SlotHash
-	for _, slotHashes := range epoch.Commits {
-		allHashes = append(allHashes, slotHashes...)
-	}
-	for _, slotHashes := range epoch.Justifieds {
-		allHashes = append(allHashes, slotHashes...)
-	}
-	for _, slotHashes := range epoch.Finalizes {
-		allHashes = append(allHashes, slotHashes...)
-	}
-
-	if len(allHashes) > 0 {
-		var slots []*paradigm.Slot
-		err = o.db.Where("slot_id IN ?", allHashes).Find(&slots).Error
-		if err != nil {
-			return nil, fmt.Errorf("failed to query slots: %v", err)
+	var hashes []paradigm.SlotHash
+	for _, group := range []map[paradigm.SupportModelType][]paradigm.SlotHash{epoch.Commits, epoch.Justifieds, epoch.Finalizes} {
+		for _, slotHashes := range group {
+			hashes = append(hashes, slotHashes...)
 		}
-
+	}
+	if len(hashes) > 0 {
+		var slots []*paradigm.Slot
+		if err := o.db.Where("slot_id IN ?", hashes).Find(&slots).Error; err != nil {
+			return nil, fmt.Errorf("failed to query slots: %w", err)
+		}
 		for _, slot := range slots {
 			epoch.SlotMap[slot.SlotID] = slot
 		}
 	}
-
 	return &epoch, nil
 }
 
-// GetEpochByTxHash 通过交易哈希查询纪元
-func (o DatabaseService) GetEpochByTxHash(txHash string) (*paradigm.DevEpoch, error) {
-	tx, err := o.GetTransactionByHash(txHash)
+func (o DatabaseService) GetEpochByTxHash(hash string) (*paradigm.DevEpoch, error) {
+	ref, err := o.GetTransactionByHash(hash)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get transaction: %v", err)
+		return nil, fmt.Errorf("failed to get transaction: %w", err)
 	}
-	if tx.Rf != paradigm.EpochTx {
+	if ref.Rf != paradigm.EpochTx {
 		return nil, fmt.Errorf("transaction is not an epoch transaction")
 	}
-	if tx.EpochID == -1 {
+	if ref.EpochID < 0 {
 		return nil, fmt.Errorf("invalid epoch ID in transaction")
 	}
-	epoch, err := o.GetEpochByID(tx.EpochID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get epoch: %v", err)
-	}
-
-	return epoch, nil
+	return o.getEpoch(ref.EpochID, ref)
 }
 
-// GetLatestEpochs 查询 limit 条最新纪元
 func (o DatabaseService) GetLatestEpochs(limit int) ([]*paradigm.DevEpoch, error) {
-	var epochs []*paradigm.DevEpoch
-	err := o.db.Order("epoch_id desc").Limit(limit).Find(&epochs).Error
-	if err != nil {
-		return nil, fmt.Errorf("failed to query latest epochs: %v", err)
+	epochs := make([]*paradigm.DevEpoch, 0)
+	if limit <= 0 {
+		return epochs, nil
 	}
-	for _, epoch := range epochs {
-		tx := paradigm.DevReference{}
-		if err := o.db.Take(&tx, epoch.TID).Error; err != nil {
-			// 记录错误但继续处理其他 epoch
-			paradigm.Log("ERROR", fmt.Sprintf("Failed to get transaction for epoch %d: %v", epoch.EpochID, err))
-			continue
+	err := o.db.Transaction(func(tx *gorm.DB) error {
+		reader := DatabaseService{db: tx}
+		maxID, err := reader.GetMaxEpochID()
+		if err != nil || maxID < 0 {
+			return err
 		}
-		epoch.TxHash = tx.TxHash
-		epoch.TxBlockHash = tx.TxBlockHash
-		epoch.TxReceipt = &tx.TxReceipt
-	}
-
-	return epochs, nil
+		minID := int32(max(0, int(maxID)-(limit-1)))
+		var details []*paradigm.DevEpoch
+		if err := tx.Where("epoch_id BETWEEN ? AND ?", minID, maxID).Find(&details).Error; err != nil {
+			return err
+		}
+		byID := make(map[int32]*paradigm.DevEpoch, len(details))
+		tids := make([]int64, 0, len(details))
+		for _, epoch := range details {
+			byID[epoch.EpochID] = epoch
+			tids = append(tids, epoch.TID)
+		}
+		var refs []*paradigm.DevReference
+		refQuery := tx.Where("rf = ? AND epoch_id BETWEEN ? AND ?", paradigm.EpochTx, minID, maxID)
+		if len(tids) > 0 {
+			refQuery = refQuery.Or("t_id IN ?", tids)
+		}
+		if err := refQuery.Order("t_id ASC").Find(&refs).Error; err != nil {
+			return err
+		}
+		refByID := make(map[int32]*paradigm.DevReference)
+		refByTID := make(map[int64]*paradigm.DevReference)
+		for _, ref := range refs {
+			refByTID[ref.TID] = ref
+			if ref.Rf == paradigm.EpochTx {
+				refByID[ref.EpochID] = ref
+			}
+		}
+		for id := maxID; id >= minID; id-- {
+			epoch := byID[id]
+			if epoch == nil {
+				epoch = emptyEpoch(id)
+				if ref := refByID[id]; ref != nil {
+					attachEpochReceipt(epoch, ref)
+				}
+			} else if ref := refByTID[epoch.TID]; ref != nil {
+				attachEpochReceipt(epoch, ref)
+			}
+			epochs = append(epochs, epoch)
+		}
+		return nil
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	return epochs, err
 }
 
-// 从数据库里获取最大的EpochID
+// GetMaxEpochID includes epochs with a receipt but no detail, and legacy details.
 func (o DatabaseService) GetMaxEpochID() (int32, error) {
-	var maxEpochID int32
-	result := o.db.Model(&paradigm.DevEpoch{}).Select("COALESCE(MAX(epoch_id), -1)").Scan(&maxEpochID)
-	if result.Error != nil {
-		return -1, result.Error
-	}
-	return maxEpochID, nil
+	var id int32
+	err := o.db.Raw(`SELECT GREATEST(
+		COALESCE((SELECT MAX(epoch_id) FROM dev_references WHERE rf = ?), -1),
+		COALESCE((SELECT MAX(epoch_id) FROM dev_epoches), -1)
+	)`, paradigm.EpochTx).Scan(&id).Error
+	return id, err
 }

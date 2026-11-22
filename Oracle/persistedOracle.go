@@ -13,7 +13,8 @@ type PersistedOracle struct {
 	// mySQLConfig paradigm.DBConnection              //mysql连接配置
 	dbService *Database.DatabaseService
 
-	manager *PKI.PKIManager
+	manager               *PKI.PKIManager
+	SkipEmptyEpochDetails bool
 	// collectors map[string]paradigm.RappaCollector //定义任务收集器
 }
 
@@ -129,7 +130,6 @@ func (o *PersistedOracle) Start() {
 							EpochID:     int32(epochRecord.Id),
 							UpchainTime: ptx.UpchainTime,
 						}
-						o.dbService.SetTransaction(reference)
 
 						epoch := &paradigm.DevEpoch{
 							EpochID:    int32(epochRecord.Id),
@@ -139,12 +139,13 @@ func (o *PersistedOracle) Start() {
 							Finalizes:  finalizeds,
 							Invalids:   invalids,
 							InitTasks:  initTasks,
-							TID:        reference.TID,
 						}
-						// 记录epoch
-						err := o.dbService.SetEpoch(epoch)
-						if err != nil {
-							paradigm.Error(paradigm.RuntimeError, "Failed to set epoch")
+						if o.SkipEmptyEpochDetails && epochRecord.IsEmpty() {
+							epoch = nil
+						}
+						if err := o.dbService.SaveEpochReceipt(reference, epoch); err != nil {
+							paradigm.Log("ERROR", fmt.Sprintf("Failed to save epoch %d: %v", epochRecord.Id, err))
+							continue
 						}
 						dateRecord.UpdateTransactions(1)
 						o.dbService.UpdateDateRecord(dateRecord)

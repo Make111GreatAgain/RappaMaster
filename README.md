@@ -391,4 +391,16 @@ bash /root/fisco/nodes/127.0.0.1/stop_all.sh
 - 
 
 
-  
+
+### 空 epoch 明细与历史清理
+
+发布新代码前确认 MySQL 有复合索引 `idx_epoch_ref (rf, epoch_id)`，用于最大编号与最近列表查询。如果开启了 GORM 自动迁移，可由新版本创建。否则在部署窗口核对索引后执行 `ALTER TABLE dev_references ADD INDEX idx_epoch_ref (rf, epoch_id);`。发布新代码后先以默认配置运行兼容查询。确认该部署使用恢复模式（`IsRecovery: true`，旧有非恢复模式启动会清表），再在部署配置中设置 `"SkipEmptyEpochDetails": true` 并重启。心跳、上链交易和 MySQL 交易引用仍会保留。空 epoch 的明细由查询临时重建。直接查询 `dev_epoches` 的报表会看到稀疏数据，需要先核查这些调用方。需要停用稀疏写入时可关闭该配置并继续运行兼容版本。
+
+清理默认只预览，报告超过 30 天的候选行和 InnoDB 估算的表大小。运行前确认配置指向目标库。
+
+```sh
+go run ./tools/epoch-cleanup -config config.json
+go run ./tools/epoch-cleanup -config config.json -apply -max-batches 10
+```
+
+每批最多删除 1,000 条主表明细。只有六列都是预期的空 JSON 且交易引用匹配才会删除。保留交易回执、异常记录和链上历史。首次执行前在备份或测试库抽样，用原 ID 和交易哈希对比详情，核验最新列表和交易统计。首次清理确认后，可以将构建出的工具（`go build -o epoch-cleanup ./tools/epoch-cleanup`）用绝对路径加入每日任务，显式传入 `-config` 和 `-apply`。InnoDB 删除后通常复用内部空间，磁盘文件不一定立即缩小。

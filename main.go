@@ -44,6 +44,7 @@ func main() {
 	epochManager := Epoch.NewEpochManager(rappaChannel, recovery, pkiManager)
 	//chainUpper, _ := ChainUpper.NewMockerChainUpper(rappaChannel) // todo @XQ 测试的时候用的是这个mocker
 	oracle := Oracle.NewPersistedOracle(rappaChannel, dbService, pkiManager)
+	oracle.SkipEmptyEpochDetails = config.SkipEmptyEpochDetails
 	monitor := Monitor.NewMonitor(rappaChannel)
 	httpEngine := HTTP.NewHttpEngine(rappaChannel, pkiManager, dbService, monitor)
 	chainUpper, err := ChainUpper.NewChainUpper(rappaChannel, config)
