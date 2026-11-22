@@ -175,8 +175,7 @@ func (o *PersistedOracle) processDBQuery() {
 			item.SendResponse(item.GenerateResponse(records))
 		case *Query.SynthTaskQuery:
 			item := query.(*Query.SynthTaskQuery)
-			// 获取所有任务
-			tasksMap, err := o.dbService.GetAllTasks()
+			tasksMap, err := o.dbService.GetTasksByFilters(item.Filters)
 			if err != nil {
 				errorResponse := paradigm.NewErrorResponse(
 					paradigm.NewRappaError(paradigm.RuntimeError,

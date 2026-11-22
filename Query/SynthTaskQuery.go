@@ -242,6 +242,7 @@ func (q *CollectTaskQuery) ToHttpJson() map[string]interface{} {
 
 // SynthTaskQuery 合成任务界面关于所有task的查询
 type SynthTaskQuery struct {
+	Filters paradigm.SynthTaskFilters
 	paradigm.BasicChannelQuery
 }
 
@@ -313,10 +314,68 @@ func (q *TaskOnNodesQuery) GenerateResponse(data interface{}) paradigm.Response 
 	return paradigm.NewSuccessResponse(response)
 }
 func (q *SynthTaskQuery) ParseRawDataFromHttpEngine(rawData map[interface{}]interface{}) bool {
+	filters := paradigm.SynthTaskFilters{}
+	values := make(map[string]string)
+	for _, key := range []string{"taskID", "taskName", "txHash", "status", "model", "startDate", "endDate"} {
+		if value, exists := rawData[key]; exists && value != nil {
+			text, ok := value.(string)
+			if !ok {
+				return false
+			}
+			values[key] = strings.TrimSpace(text)
+		}
+	}
+	filters.TaskID, filters.TaskName, filters.TxHash = values["taskID"], values["taskName"], values["txHash"]
+	if value := values["status"]; value != "" {
+		status, err := strconv.Atoi(value)
+		if err != nil || status < int(paradigm.Finished) || status > int(paradigm.Failed) {
+			return false
+		}
+		parsed := paradigm.SlotStatus(status)
+		filters.Status = &parsed
+	}
+	if value := values["model"]; value != "" {
+		switch strings.ToUpper(value) {
+		case "CTGAN", "BAED", "FINKAN", "ABM", "ABM_V2":
+			model := paradigm.NameToModelType(strings.ToUpper(value))
+			filters.Model = &model
+		default:
+			return false
+		}
+	}
+	for key, target := range map[string]**time.Time{"startDate": &filters.StartDate, "endDate": &filters.EndDate} {
+		if value := values[key]; value != "" {
+			date, err := time.ParseInLocation("2006-01-02", value, time.Local)
+			if err != nil {
+				return false
+			}
+			*target = &date
+		}
+	}
+	if filters.StartDate != nil && filters.EndDate != nil && filters.StartDate.After(*filters.EndDate) {
+		return false
+	}
+	q.Filters = filters
 	return true
 }
 func (q *SynthTaskQuery) ToHttpJson() map[string]interface{} {
-	return map[string]interface{}{"query": "SynthTaskQuery"}
+	result := map[string]interface{}{
+		"query": "SynthTaskQuery", "taskID": q.Filters.TaskID,
+		"taskName": q.Filters.TaskName, "txHash": q.Filters.TxHash,
+	}
+	if q.Filters.Status != nil {
+		result["status"] = strconv.Itoa(int(*q.Filters.Status))
+	}
+	if q.Filters.Model != nil {
+		result["model"] = paradigm.ModelTypeToString(*q.Filters.Model)
+	}
+	if q.Filters.StartDate != nil {
+		result["startDate"] = q.Filters.StartDate.Format("2006-01-02")
+	}
+	if q.Filters.EndDate != nil {
+		result["endDate"] = q.Filters.EndDate.Format("2006-01-02")
+	}
+	return result
 }
 
 // SlotIntegrityVerification 对slot进行完整性验证, 目前使用Merkle Tree结构

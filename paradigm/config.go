@@ -9,7 +9,7 @@ import (
 	"strconv"
 )
 
-const DefaultUploadURL = "http://oneplatbank.i2soft.cn:19195/jeecgboot/datap/uploadFile"
+const DefaultUploadURL = "http://10.20.4.78:8081/jeecgboot/datap/uploadFile"
 
 // 定义通信节点的地址配置
 type BHNodeAddress struct {

@@ -50,7 +50,7 @@ cat <<EOL >$config_path
   "QueueBufferSize": 100000,
   "WorkerCount": 3,
   "BatchSize": 1,
-  "UploadURL": "http://oneplatbank.i2soft.cn:19195/jeecgboot/datap/uploadFile",
+  "UploadURL": "http://10.20.4.78:8081/jeecgboot/datap/uploadFile",
   "ABMStockDataDir": "/root/rappa/stockdata",
   "ABMStockParamDir": "/root/rappa/stockdata/params",
   "ABMV2MaxConcurrency": 4,

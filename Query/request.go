@@ -118,7 +118,15 @@ func (r *HttpOracleQueryRequest) BuildQueryFromGETRequest(c *gin.Context) (bool,
 	case "DateTransactionQuery":
 		return true, NewDateTransactionQuery()
 	case "SynthTaskQuery":
-		return true, NewSynthTaskQuery()
+		item := NewSynthTaskQuery()
+		filters := make(map[interface{}]interface{})
+		for _, key := range []string{"taskID", "taskName", "txHash", "status", "model", "startDate", "endDate"} {
+			filters[key] = c.Query(key)
+		}
+		if !item.ParseRawDataFromHttpEngine(filters) {
+			return false, nil
+		}
+		return true, item
 	case "TaskOnNodesQuery":
 		taskID := c.DefaultQuery("taskID", "")
 		if taskID == "" {

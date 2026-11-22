@@ -6,6 +6,7 @@ import (
 	"BHLayer2Node/paradigm"
 	"errors"
 	"fmt"
+	"strings"
 
 	"gorm.io/gorm"
 )
@@ -154,8 +155,43 @@ func (o DatabaseService) GetTaskByTxHash(txHash string) (*paradigm.Task, error) 
 
 // GetAllTasks 查询所有任务
 func (o DatabaseService) GetAllTasks() ([]*paradigm.Task, error) {
+	return o.GetTasksByFilters(paradigm.SynthTaskFilters{})
+}
+
+// synthTaskQuery 在数据库中组合筛选，避免对无关任务加载交易信息。
+func (o DatabaseService) synthTaskQuery(filters paradigm.SynthTaskFilters) *gorm.DB {
+	query := o.db.Model(&paradigm.Task{})
+	// INSTR 按字面量做不区分大小写的包含查询，% 和 _ 不作为通配符。
+	for _, field := range []struct{ column, value string }{
+		{"sign", filters.TaskID}, {"name", filters.TaskName},
+	} {
+		if field.value != "" {
+			query = query.Where("INSTR(LOWER("+field.column+"), ?) > 0", strings.ToLower(field.value))
+		}
+	}
+	if filters.TxHash != "" {
+		transactions := o.db.Model(&paradigm.DevReference{}).Select("t_id").
+			Where("INSTR(LOWER(tx_hash), ?) > 0", strings.ToLower(filters.TxHash))
+		query = query.Where("t_id IN (?)", transactions)
+	}
+	if filters.Status != nil {
+		query = query.Where("status = ?", *filters.Status)
+	}
+	if filters.Model != nil {
+		query = query.Where("model = ?", *filters.Model)
+	}
+	if filters.StartDate != nil {
+		query = query.Where("start_time >= ?", *filters.StartDate)
+	}
+	if filters.EndDate != nil {
+		query = query.Where("start_time < ?", filters.EndDate.AddDate(0, 0, 1))
+	}
+	return query.Order("start_time DESC").Order("sign DESC")
+}
+
+func (o DatabaseService) GetTasksByFilters(filters paradigm.SynthTaskFilters) ([]*paradigm.Task, error) {
 	var tasks []*paradigm.Task
-	err := o.db.Order("start_time DESC").Find(&tasks).Error
+	err := o.synthTaskQuery(filters).Find(&tasks).Error
 	if err != nil {
 		return nil, err
 	}

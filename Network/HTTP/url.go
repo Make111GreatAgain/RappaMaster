@@ -186,6 +186,27 @@ func matchAnalyzedStockFilter(searchType, keyword string, stock map[string]inter
 	}
 }
 
+func paginateAnalyzedStocks(items []map[string]interface{}, pageNo, pageSize int) map[string]interface{} {
+	pageNo = max(1, pageNo)
+	if pageSize <= 0 {
+		pageSize = 50
+	}
+	pageSize = min(500, pageSize)
+	total := len(items)
+	start := total
+	// Check the page before multiplying so a large pageNo cannot overflow.
+	if total > 0 && pageNo-1 <= (total-1)/pageSize {
+		start = (pageNo - 1) * pageSize
+	}
+	end := start + min(pageSize, total-start)
+	return map[string]interface{}{
+		"items":    items[start:end],
+		"total":    total,
+		"pageNo":   pageNo,
+		"pageSize": pageSize,
+	}
+}
+
 func BuildLatestMarketTaskResponse(platformTask *paradigm.PlatformTask) map[string]interface{} {
 	if platformTask == nil {
 		return nil
@@ -568,6 +589,14 @@ func (e *HttpEngine) GetHttpService(service HttpServiceEnum) (*HttpService, erro
 					return
 				}
 
+				sort.Slice(tasks, func(i, j int) bool {
+					left, right := tasks[i], tasks[j]
+					if left.StartTime.Equal(right.StartTime) {
+						return left.Sign < right.Sign
+					}
+					return left.StartTime.After(right.StartTime)
+				})
+
 				result := make([]map[string]interface{}, 0)
 				for _, t := range tasks {
 					p := t.Params
@@ -611,9 +640,16 @@ func (e *HttpEngine) GetHttpService(service HttpServiceEnum) (*HttpService, erro
 					result = append(result, stock)
 				}
 
+				data := interface{}(result)
+				if c.Request.URL.Query().Has("pageNo") || c.Request.URL.Query().Has("pageSize") {
+					pageNo, _ := strconv.Atoi(strings.TrimSpace(c.Query("pageNo")))
+					pageSize, _ := strconv.Atoi(strings.TrimSpace(c.Query("pageSize")))
+					data = paginateAnalyzedStocks(result, pageNo, pageSize)
+				}
+
 				c.JSON(http.StatusOK, paradigm.HttpResponse{
 					Message: "操作成功",
-					Data:    result,
+					Data:    data,
 					Code:    "S000000",
 				})
 			},
